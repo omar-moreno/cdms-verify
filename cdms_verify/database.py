@@ -1,0 +1,215 @@
+"""SQLite persistence layer for verification results.
+
+Stores each execution of the verification tool as a row in
+``verification_runs`` together with one ``verification_results`` row per
+scanned file. This historical design allows trends to be queried over time
+(e.g. "was this file registered last week but missing now?").
+
+The schema is defined in the sibling ``schema.sql`` file and applied
+idempotently by :func:`init_db`.
+
+Functions
+---------
+get_db
+    Context manager yielding a configured SQLite connection.
+init_db
+    Create the schema if it does not already exist.
+save_results_to_db
+    Persist a verification run and its per-file results.
+
+Notes
+-----
+SQLite is used for its zero-dependency, single-file nature which suits
+reproducible k8s deployments. Write-Ahead Logging (WAL) is enabled to allow
+concurrent reads during writes; however, SQLite still serializes writers, so
+multiple pods should not write to the *same* database file simultaneously.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime
+from importlib import resources
+from typing import Any, Dict, Generator, List, Union
+
+from pathlib import Path
+
+#: Location of the packaged schema, loaded via importlib.resources.
+_SCHEMA_RESOURCE = "schema.sql"
+
+
+def _load_schema() -> str:
+    """Load the packaged SQL schema as a string.
+
+    Returns
+    -------
+    str
+        The full contents of ``schema.sql`` bundled with the package.
+
+    Notes
+    -----
+    Uses :mod:`importlib.resources` so the schema is located correctly whether
+    the package is run from source, an installed wheel, or a zipapp.
+    """
+    return (
+        resources.files("cdms_verify")
+        .joinpath(_SCHEMA_RESOURCE)
+        .read_text(encoding="utf-8")
+    )
+
+
+@contextmanager
+def get_db(db_path: Union[str, Path]) -> Generator[sqlite3.Connection, None, None]:
+    """Yield a configured SQLite connection with transactional semantics.
+
+    The connection is configured with WAL journaling and enforced foreign
+    keys. On normal exit the transaction is committed; on any exception it is
+    rolled back and the exception is re-raised. The connection is always
+    closed.
+
+    Parameters
+    ----------
+    db_path : str or pathlib.Path
+        Path to the SQLite database file. Created if it does not exist.
+
+    Yields
+    ------
+    sqlite3.Connection
+        An open connection whose ``row_factory`` is set to
+        :class:`sqlite3.Row` for dict-like row access.
+
+    Raises
+    ------
+    Exception
+        Any exception raised within the ``with`` block is propagated after the
+        transaction is rolled back.
+
+    Examples
+    --------
+    >>> with get_db(":memory:") as conn:  # doctest: +SKIP
+    ...     conn.execute("SELECT 1")
+    """
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db(db_path: Union[str, Path]) -> None:
+    """Create the database schema if it does not already exist.
+
+    Parameters
+    ----------
+    db_path : str or pathlib.Path
+        Path to the SQLite database file to initialize.
+
+
+    Notes
+    -----
+    Safe to call repeatedly; all statements in the schema use
+    ``CREATE ... IF NOT EXISTS``.
+
+    Examples
+    --------
+    >>> init_db("verification.db")  # doctest: +SKIP
+    """
+    schema = _load_schema()
+    with get_db(db_path) as conn:
+        conn.executescript(schema)
+
+
+def save_results_to_db(
+    db_path: Union[str, Path],
+    results: List[Dict[str, Any]],
+    stats: Dict[str, int],
+    local_dir: str,
+    catalog_path: str,
+    site: str,
+) -> int:
+    """Persist a verification run and its per-file results.
+
+    Inserts a single row into ``verification_runs`` capturing the run-level
+    summary, then bulk-inserts one row per file into ``verification_results``
+    linked by the new run's id.
+
+    Parameters
+    ----------
+    db_path : str or pathlib.Path
+        Path to the SQLite database file. Must already be initialized via
+        :func:`init_db`.
+    results : list of dict
+        Per-file result rows. Each dict must contain the keys ``file_path``,
+        ``catalog_path``, ``status``, and ``checksum``.
+    stats : dict of str to int
+        Run-level summary containing the keys ``total``, ``registered``,
+        ``unregistered``, and ``errors``.
+    local_dir : str
+        The local directory that was scanned, stored for provenance.
+    catalog_path : str
+        The catalog path prefix that was verified against.
+    site : str
+        The storage site the run targeted.
+
+    Returns
+    -------
+    int
+        The autogenerated ``id`` of the inserted ``verification_runs`` row.
+
+    Examples
+    --------
+    >>> run_id = save_results_to_db(  # doctest: +SKIP
+    ...     "verification.db", results, stats,
+    ...     "/data/CDMS/Raw", "/CDMS/Raw", "SLAC",
+    ... )
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with get_db(db_path) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO verification_runs
+                (run_timestamp, local_dir, catalog_path, site,
+                 total, registered, unregistered, errors)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                local_dir,
+                catalog_path,
+                site,
+                stats["total"],
+                stats["registered"],
+                stats["unregistered"],
+                stats["errors"],
+            ),
+        )
+        run_id = cursor.lastrowid
+
+        conn.executemany(
+            """
+            INSERT INTO verification_results
+                (run_id, file_path, catalog_path, status, checksum)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    run_id,
+                    r["file_path"],
+                    r["catalog_path"],
+                    r["status"],
+                    r["checksum"],
+                )
+                for r in results
+            ],
+        )
+
+    return run_id
