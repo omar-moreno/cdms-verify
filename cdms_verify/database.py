@@ -148,7 +148,9 @@ def save_results_to_db(
         :func:`init_db`.
     results : list of dict
         Per-file result rows. Each dict must contain the keys ``file_path``,
-        ``catalog_path``, ``status``, and ``checksum``.
+        ``catalog_path``, ``status``, and ``checksum``, and may contain
+        ``size`` (int or None) and ``mtime`` (float or None). Missing size or
+        mtime keys are stored as ``NULL``.
     stats : dict of str to int
         Run-level summary containing the keys ``total``, ``registered``,
         ``unregistered``, and ``errors``.
@@ -197,8 +199,8 @@ def save_results_to_db(
         conn.executemany(
             """
             INSERT INTO verification_results
-                (run_id, file_path, catalog_path, status, checksum)
-            VALUES (?, ?, ?, ?, ?)
+                (run_id, file_path, catalog_path, status, checksum, size, mtime)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -207,6 +209,8 @@ def save_results_to_db(
                     r["catalog_path"],
                     r["status"],
                     r["checksum"],
+                    r.get("size"),
+                    r.get("mtime"),
                 )
                 for r in results
             ],
