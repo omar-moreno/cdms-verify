@@ -218,15 +218,14 @@ def save_results_to_db(
 
     return run_id
 
-def get_existing_checksums(
+def get_existing_file_info(
     db_path: Union[str, Path],
     file_paths: List[str],
-) -> Dict[str, str]:
-    """Return the most recent stored checksum for each given file path.
+) -> Dict[str, Dict[str, Any]]:
+    """Return the most recent stored checksum, size, and mtime per file path.
 
-    Looks across all prior runs and returns, for every requested
-    ``file_path``, the checksum recorded in the most recent run in which that
-    file appeared (and for which a real checksum was stored).
+    For every requested ``file_path``, returns the record from the most recent
+    run in which that file appeared with a usable checksum.
 
     Parameters
     ----------
@@ -237,20 +236,22 @@ def get_existing_checksums(
 
     Returns
     -------
-    dict of str to str
-        A mapping from ``file_path`` to its most recently stored checksum.
-        File paths with no usable prior checksum are omitted from the mapping.
+    dict of str to dict
+        A mapping from ``file_path`` to a record dict with keys ``checksum``,
+        ``size``, and ``mtime``. File paths with no usable prior record are
+        omitted from the mapping.
 
     Notes
     -----
     Rows whose checksum is ``NULL``, empty, or equal to the error sentinel
     ``ERROR_CALCULATING`` are ignored so that a previously failed checksum is
-    retried rather than reused.
+    retried rather than reused. The returned ``size`` and ``mtime`` allow a
+    caller to decide whether the cached checksum is still trustworthy.
 
     Examples
     --------
-    >>> get_existing_checksums("verification.db", ["/data/a.dat"])  # doctest: +SKIP
-    {'/data/a.dat': 'abc123...'}
+    >>> get_existing_file_info("verification.db", ["/data/a.dat"])  # doctest: +SKIP
+    {'/data/a.dat': { 'checksum': 'abc123...', 'size': 1024, 'mtime': 170000000.0}}
     """
     if not file_paths:
         return {}
@@ -258,7 +259,7 @@ def get_existing_checksums(
     placeholders = ",".join("?" for _ in file_paths)
     # For each file_path, pick the checksum from the highest (latest) run_id.
     query = f"""
-        SELECT r.file_path, r.checksum
+        SELECT r.file_path, r.checksum, r.size, r.mtime
         FROM verification_results AS r
         JOIN (
             SELECT file_path, MAX(run_id) AS max_run
@@ -276,8 +277,13 @@ def get_existing_checksums(
     with get_db(db_path) as conn:
         rows = conn.execute(query, tuple(file_paths)).fetchall()
 
-    return {row["file_path"]: row["checksum"] for row in rows}
-
+    return {row["file_path"]: { 
+                "checksum": row["checksum"],
+                "size": row["size"],
+                "mtime": row["mtime"],
+            }
+            for row in rows
+    }
 
 def load_run(
     db_path: Union[str, Path],
@@ -304,7 +310,7 @@ def load_run(
             ``catalog_path``, ``site``).
         ``results``
             A list of per-file dicts with ``file_path``, ``catalog_path``,
-            ``status``, and ``checksum``.
+            ``status``, ``checksum``, ``size`` and ``mtime``. 
 
     Raises
     ------
@@ -327,7 +333,7 @@ def load_run(
 
         result_rows = conn.execute(
             """
-            SELECT file_path, catalog_path, status, checksum
+            SELECT file_path, catalog_path, status, checksum, size, mtime
             FROM verification_results
             WHERE run_id = ?
             ORDER BY id
