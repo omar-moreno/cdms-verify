@@ -11,19 +11,37 @@ calculate_sha256
     Compute the SHA256 hex digest of a file.
 scan_local_files
     Yield the absolute paths of files within a directory.
+stat_file
+    Return the size and modification time of a file.
 """
 
 from __future__ import annotations
 
+import os
 import hashlib
 from pathlib import Path
-from typing import Generator, Union
+from typing import Generator, Union, NamedTuple, Optional
 
 # Read files in 1 MiB chunks to bound memory usage for large files.
 _CHUNK_SIZE = 1024 * 1024
 
 #: Sentinel returned by :func:`calculate_sha256` when hashing fails.
 CHECKSUM_ERROR = "ERROR_CALCULATING"
+
+class FileStat(NamedTuple):
+    """Lightweight container for a file's size and modification time.
+
+    Attributes
+    ----------
+    size : int or None
+        File size in bytes, or ``None`` if the file could not be stat-ed.
+    mtime : float or None
+        Modification time as POSIX epoch seconds (may include a fractional
+        part), or ``None`` if the file could not be stat-ed.
+    """
+
+    size: Optional[int]
+    mtime: Optional[float]
 
 
 def calculate_sha256(file_path: Union[str, Path]) -> str:
@@ -122,3 +140,47 @@ def scan_local_files(
         for item in directory_path.iterdir():
             if item.is_file():
                 yield str(item.absolute())
+
+def stat_file(file_path: Union[str, Path]) -> FileStat:
+    """Return the size and modification time of a file.
+
+    Parameters
+    ----------
+    file_path : str or pathlib.Path
+        Path to the file to stat.
+
+    Returns
+    -------
+    FileStat
+        A named tuple ``(size, mtime)``. Both fields are ``None`` if the file
+        cannot be stat-ed (e.g. it was removed between scanning and stat-ing,
+        or is unreadable).
+
+    See Also
+    --------
+    calculate_sha256 : Compute a content checksum for the same file.
+
+    Notes
+    -----
+    ``mtime`` is taken from :attr:`os.stat_result.st_mtime` and therefore uses
+    the platform's modification-time resolution. As with checksums, any error
+    is swallowed and reported via ``None`` fields rather than raised, so a
+    single problematic file does not abort a verification run.
+
+    Examples
+    --------
+    >>> import tempfile, os
+    >>> path = tempfile.mktemp()
+    >>> _ = open(path, "wb").write(b"hello")
+    >>> st = stat_file(path)
+    >>> st.size
+    5
+    >>> isinstance(st.mtime, float)
+    True
+    >>> os.remove(path)
+    """
+    try:
+        info = os.stat(file_path)
+        return FileStat(size=info.st_size, mtime=info.st_mtime)
+    except OSError:
+        return FileStat(size=None, mtime=None)
