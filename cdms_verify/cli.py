@@ -20,9 +20,13 @@ from typing import Any, Dict, List
 import click
 
 from cdms_verify.catalog import get_datasets
-from cdms_verify.database import init_db, save_results_to_db
+from cdms_verify.database import (
+        get_existing_checksums,
+        init_db, 
+        save_results_to_db
+)
 from cdms_verify.paths import extract_catalog_path, normalize_path
-from cdms_verify.reports import generate_csv_report, generate_html_report
+from cdms_verify.reports import generate_html_report_from_db
 from cdms_verify.scanning import CHECKSUM_ERROR, calculate_sha256, scan_local_files
 
 # Imported lazily-friendly: the concrete client used at runtime.
@@ -68,8 +72,9 @@ def verify_catalog_registration(
     """Verify local files against the CDMS Data Catalog.
 
     Scans ``local_dir``, derives each file's expected catalog path, checks it
-    against datasets registered at ``site``, computes a SHA256 checksum, and
-    writes results to a SQLite database plus CSV and HTML reports.
+    against datasets registered at ``site``, computes a SHA256 checksum (only
+    when one is not already stored from a prior run), persists results to a
+    SQLite database, and renders an HTML report from that database.
 
     Parameters
     ----------
@@ -80,8 +85,7 @@ def verify_catalog_registration(
     recursive : bool
         Whether to descend into subdirectories.
     output_dir : str
-        Directory in which CSV and HTML reports are written; created if
-        needed.
+        Directory in which the HTML report is written; created if needed.
     db_path : str
         Path to the SQLite database file for persisting results.
     verbose : bool
@@ -96,12 +100,17 @@ def verify_catalog_registration(
 
     Notes
     -----
-    A file whose checksum cannot be computed is recorded with status
-    ``ERROR`` and counted in ``stats["errors"]``. Registration itself remains
-    path-based; the checksum is stored for provenance and future comparison.
+    Checksums are cached across runs: if a file already has a valid checksum
+    stored in the database, that value is reused and the (potentially
+    expensive) SHA256 computation is skipped. Files whose checksum previously
+    failed are retried. Registration itself remains path-based; the checksum
+    is stored for provenance and future comparison.
     """
     output_path_obj = Path(output_dir)
     output_path_obj.mkdir(parents=True, exist_ok=True)
+
+    # Ensure the database schema exists before we read from or write to it.
+    init_db(db_path)
 
     # Initialize the catalog client.
     try:
@@ -140,10 +149,19 @@ def verify_catalog_registration(
     dataset_paths = [d.path for d in datasets]
     click.echo(f"Found {len(dataset_paths)} datasets registered in the catalog.")
 
+    # Batch-fetch checksums already stored from prior runs so we can skip
+    # recomputation for unchanged files. One query instead of N lookups.
+    cached_checksums = get_existing_checksums(db_path, local_files)
+    if verbose:
+        click.echo(f"Reusing {len(cached_checksums)} cached checksum(s) from prior runs.\n")
+
     stats: Dict[str, int] = {
         "total": 0, "registered": 0, "unregistered": 0, "errors": 0,
     }
     results: List[Dict[str, Any]] = []
+
+    reused = 0
+    computed = 0
 
     for local_file in local_files:
         stats["total"] += 1
@@ -152,7 +170,16 @@ def verify_catalog_registration(
         if verbose:
             click.echo(f"Checking: {local_file} -> {expected}")
 
-        checksum = calculate_sha256(local_file)
+        # Only compute the checksum if we do not already have a valid one.
+        if local_file in cached_checksums:
+            checksum = cached_checksums[local_file]
+            reused += 1
+            if verbose:
+                click.echo(click.style(f"  \u21ba reused stored checksum", fg="blue"))
+        else:
+            checksum = calculate_sha256(local_file)
+            computed += 1
+
         result_row: Dict[str, Any] = {
             "file_path": local_file,
             "catalog_path": expected,
@@ -176,23 +203,22 @@ def verify_catalog_registration(
             click.echo(click.style(f"UNREGISTERED: {local_file}", fg="yellow"))
 
         results.append(result_row)
-
+    
+    click.echo(
+        f"\nChecksums: {computed} computed, {reused} reused from database."
+    )
     click.echo(f"Datasets in catalog with no local match: {len(dataset_paths)}")
 
     # Persist to database.
-    init_db(db_path)
     run_id = save_results_to_db(
         db_path, results, stats, local_dir, catalog_path or "/CDMS", site,
     )
     click.echo(f"Results saved to database (run #{run_id}): {db_path}")
-
-    # Generate reports.
-    csv_filename = output_path_obj / "verification_report.csv"
+    
+    # Generate the HTML report by reading the run back from the database.
     html_filename = output_path_obj / "verification_report.html"
-    click.echo("\nGenerating reports...")
-    generate_csv_report(results, str(csv_filename))
-    generate_html_report(results, stats, str(html_filename))
-    click.echo(f"CSV report saved to:  {csv_filename}")
+    click.echo("\nGenerating report from database...")
+    generate_html_report_from_db(db_path, run_id, str(html_filename))
     click.echo(f"HTML report saved to: {html_filename}")
 
     # Summary.
