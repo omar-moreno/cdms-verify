@@ -20,8 +20,11 @@ CREATE TABLE IF NOT EXISTS verification_results (
     catalog_path TEXT    NOT NULL,
     status       TEXT    NOT NULL,
     checksum     TEXT,
+    size        INTEGER,
+    mtime       REAL,
     FOREIGN KEY (run_id) REFERENCES verification_runs (id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_results_run    ON verification_results (run_id);
 CREATE INDEX IF NOT EXISTS idx_results_status ON verification_results (status);
+CREATE INDEX IF NOT EXISTS idx_results_path   ON verification_results (file_path);
