@@ -139,7 +139,7 @@ def verify_catalog_registration(
         sys.exit(1)
 
     local_path_obj = Path(local_dir)
-    catalog_path = extract_catalog_path(local_path_obj)
+    catalog_path = extract_catalog_path(local_path_obj) or "/CDMS"
 
     click.echo(click.style("Starting verification...", fg="cyan"))
     click.echo(f"  Local Directory : {local_dir}")
