@@ -153,7 +153,7 @@ def save_results_to_db(
         mtime keys are stored as ``NULL``.
     stats : dict of str to int
         Run-level summary containing the keys ``total``, ``registered``,
-        ``unregistered``, ``errors``m and ``changed``. ``changed`` defaults to
+        ``unregistered``, ``errors``, and ``changed``. ``changed`` defaults to
         ``0`` if absent.
     local_dir : str
         The local directory that was scanned, stored for provenance.
