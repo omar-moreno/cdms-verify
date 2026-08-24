@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS verification_runs (
     total         INTEGER NOT NULL,
     registered    INTEGER NOT NULL,
     unregistered  INTEGER NOT NULL,
-    errors        INTEGER NOT NULL
+    errors        INTEGER NOT NULL,
+    changed       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS verification_results (
