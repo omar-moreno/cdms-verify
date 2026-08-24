@@ -37,7 +37,7 @@ STATUS_PRIORITY: Dict[str, int] = {
     "ERROR": 4,
 }
 
-#: Report column order shared by the CSV and HTML renderers.
+#: Report column order used by the HTML renderer.
 FIELDNAMES = ["file_path", "catalog_path", "status", "checksum"]
 
 
