@@ -55,7 +55,7 @@ from CDMSDataCatalog import CDMSDataCatalog
 @click.option(
     "--output-dir", "-o", default=".",
     type=click.Path(file_okay=False, dir_okay=True),
-    help="Directory to save CSV and HTML reports (default: current dir).",
+    help="Directory to save the HTML report (default: current dir).",
 )
 @click.option(
     "--db-path", default="verification.db",
