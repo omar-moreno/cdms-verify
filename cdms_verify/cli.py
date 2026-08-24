@@ -262,7 +262,7 @@ def verify_catalog_registration(
    
     click.echo(
         f"\nChecksums: {computed} computed, {reused} reused, "
-        f"{changed} flagged as changed (error)."
+        f"{changed} flagged as changed."
     )
     click.echo(f"Datasets in catalog with no local match: {len(dataset_paths)}")
 
