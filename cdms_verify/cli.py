@@ -119,8 +119,8 @@ def verify_catalog_registration(
     - **New** (no prior record): the checksum is computed for the first time.
 
     Any of unregistered files, checksum errors, or changed files causes the
-    command to exit with status ``1``. The size and mtime are persisted on
-    every run so an external tool can perform its own change detection.
+    command to exit with status ``1``. Size and mtime are persisted for new
+    and unchanged files; changed files retain the last-known size/mtime.
 
     """
     output_path_obj = Path(output_dir)
