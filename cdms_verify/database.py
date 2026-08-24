@@ -153,7 +153,8 @@ def save_results_to_db(
         mtime keys are stored as ``NULL``.
     stats : dict of str to int
         Run-level summary containing the keys ``total``, ``registered``,
-        ``unregistered``, and ``errors``.
+        ``unregistered``, ``errors``m and ``changed``. ``changed`` defaults to
+        ``0`` if absent.
     local_dir : str
         The local directory that was scanned, stored for provenance.
     catalog_path : str
@@ -180,8 +181,8 @@ def save_results_to_db(
             """
             INSERT INTO verification_runs
                 (run_timestamp, local_dir, catalog_path, site,
-                 total, registered, unregistered, errors)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 total, registered, unregistered, errors, changed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp,
@@ -192,6 +193,7 @@ def save_results_to_db(
                 stats["registered"],
                 stats["unregistered"],
                 stats["errors"],
+                stats.get("changed", 0),
             ),
         )
         run_id = cursor.lastrowid
@@ -305,9 +307,9 @@ def load_run(
         A dictionary with two keys:
 
         ``stats``
-            A dict with ``total``, ``registered``, ``unregistered``, and
-            ``errors`` plus run metadata (``run_timestamp``, ``local_dir``,
-            ``catalog_path``, ``site``).
+            A dict with ``total``, ``registered``, ``unregistered``,
+            ``errors``, and ``changed`` plus run metadata (``run_timestamp``,
+            ``local_dir``, ``catalog_path``, ``site``).
         ``results``
             A list of per-file dicts with ``file_path``, ``catalog_path``,
             ``status``, ``checksum``, ``size`` and ``mtime``. 
@@ -346,6 +348,7 @@ def load_run(
         "registered": run_row["registered"],
         "unregistered": run_row["unregistered"],
         "errors": run_row["errors"],
+        "changed": run_row["changed"],
         "run_timestamp": run_row["run_timestamp"],
         "local_dir": run_row["local_dir"],
         "catalog_path": run_row["catalog_path"],
