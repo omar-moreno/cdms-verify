@@ -258,6 +258,8 @@ def get_existing_file_info(
     if not file_paths:
         return {}
 
+    from cdms_verify.scanning import CHECKSUM_ERROR
+
     placeholders = ",".join("?" for _ in file_paths)
     # For each file_path, pick the checksum from the highest (latest) run_id.
     query = f"""
@@ -269,7 +271,7 @@ def get_existing_file_info(
             WHERE file_path IN ({placeholders})
               AND checksum IS NOT NULL
               AND checksum != ''
-              AND checksum != 'ERROR_CALCULATING'
+              AND checksum != ?
             GROUP BY file_path
         ) AS latest
           ON r.file_path = latest.file_path
@@ -277,7 +279,7 @@ def get_existing_file_info(
     """
 
     with get_db(db_path) as conn:
-        rows = conn.execute(query, tuple(file_paths)).fetchall()
+        rows = conn.execute(query, tuple(file_paths) + (CHECKSUM_ERROR,)).fetchall()
 
     return {row["file_path"]: { 
                 "checksum": row["checksum"],
