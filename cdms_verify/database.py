@@ -148,10 +148,13 @@ def save_results_to_db(
         :func:`init_db`.
     results : list of dict
         Per-file result rows. Each dict must contain the keys ``file_path``,
-        ``catalog_path``, ``status``, and ``checksum``.
+        ``catalog_path``, ``status``, and ``checksum``, and may contain
+        ``size`` (int or None) and ``mtime`` (float or None). Missing size or
+        mtime keys are stored as ``NULL``.
     stats : dict of str to int
         Run-level summary containing the keys ``total``, ``registered``,
-        ``unregistered``, and ``errors``.
+        ``unregistered``, ``errors``, and ``changed``. ``changed`` defaults to
+        ``0`` if absent.
     local_dir : str
         The local directory that was scanned, stored for provenance.
     catalog_path : str
@@ -178,8 +181,8 @@ def save_results_to_db(
             """
             INSERT INTO verification_runs
                 (run_timestamp, local_dir, catalog_path, site,
-                 total, registered, unregistered, errors)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 total, registered, unregistered, errors, changed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp,
@@ -190,6 +193,7 @@ def save_results_to_db(
                 stats["registered"],
                 stats["unregistered"],
                 stats["errors"],
+                stats.get("changed", 0),
             ),
         )
         run_id = cursor.lastrowid
@@ -197,8 +201,8 @@ def save_results_to_db(
         conn.executemany(
             """
             INSERT INTO verification_results
-                (run_id, file_path, catalog_path, status, checksum)
-            VALUES (?, ?, ?, ?, ?)
+                (run_id, file_path, catalog_path, status, checksum, size, mtime)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -207,9 +211,151 @@ def save_results_to_db(
                     r["catalog_path"],
                     r["status"],
                     r["checksum"],
+                    r.get("size"),
+                    r.get("mtime"),
                 )
                 for r in results
             ],
         )
 
     return run_id
+
+def get_existing_file_info(
+    db_path: Union[str, Path],
+    file_paths: List[str],
+) -> Dict[str, Dict[str, Any]]:
+    """Return the most recent stored checksum, size, and mtime per file path.
+
+    For every requested ``file_path``, returns the record from the most recent
+    run in which that file appeared with a usable checksum.
+
+    Parameters
+    ----------
+    db_path : str or pathlib.Path
+        Path to the SQLite database file. Must already be initialized.
+    file_paths : list of str
+        The local file paths to look up.
+
+    Returns
+    -------
+    dict of str to dict
+        A mapping from ``file_path`` to a record dict with keys ``checksum``,
+        ``size``, and ``mtime``. File paths with no usable prior record are
+        omitted from the mapping.
+
+    Notes
+    -----
+    Rows whose checksum is ``NULL``, empty, or equal to the error sentinel
+    ``ERROR_CALCULATING`` are ignored so that a previously failed checksum is
+    retried rather than reused. The returned ``size`` and ``mtime`` allow a
+    caller to decide whether the cached checksum is still trustworthy.
+
+    Examples
+    --------
+    >>> get_existing_file_info("verification.db", ["/data/a.dat"])  # doctest: +SKIP
+    {'/data/a.dat': { 'checksum': 'abc123...', 'size': 1024, 'mtime': 170000000.0}}
+    """
+    if not file_paths:
+        return {}
+
+    from cdms_verify.scanning import CHECKSUM_ERROR
+
+    placeholders = ",".join("?" for _ in file_paths)
+    # For each file_path, pick the checksum from the highest (latest) run_id.
+    query = f"""
+        SELECT r.file_path, r.checksum, r.size, r.mtime
+        FROM verification_results AS r
+        JOIN (
+            SELECT file_path, MAX(run_id) AS max_run
+            FROM verification_results
+            WHERE file_path IN ({placeholders})
+              AND checksum IS NOT NULL
+              AND checksum != ''
+              AND checksum != ?
+            GROUP BY file_path
+        ) AS latest
+          ON r.file_path = latest.file_path
+         AND r.run_id = latest.max_run
+    """
+
+    with get_db(db_path) as conn:
+        rows = conn.execute(query, tuple(file_paths) + (CHECKSUM_ERROR,)).fetchall()
+
+    return {row["file_path"]: { 
+                "checksum": row["checksum"],
+                "size": row["size"],
+                "mtime": row["mtime"],
+            }
+            for row in rows
+    }
+
+def load_run(
+    db_path: Union[str, Path],
+    run_id: int,
+) -> Dict[str, Any]:
+    """Load a single verification run and its results from the database.
+
+    Parameters
+    ----------
+    db_path : str or pathlib.Path
+        Path to the SQLite database file.
+    run_id : int
+        The identifier of the run to load, as returned by
+        :func:`save_results_to_db`.
+
+    Returns
+    -------
+    dict
+        A dictionary with two keys:
+
+        ``stats``
+            A dict with ``total``, ``registered``, ``unregistered``,
+            ``errors``, and ``changed`` plus run metadata (``run_timestamp``,
+            ``local_dir``, ``catalog_path``, ``site``).
+        ``results``
+            A list of per-file dicts with ``file_path``, ``catalog_path``,
+            ``status``, ``checksum``, ``size`` and ``mtime``. 
+
+    Raises
+    ------
+    KeyError
+        If no run with the given ``run_id`` exists.
+
+    Examples
+    --------
+    >>> data = load_run("verification.db", 1)  # doctest: +SKIP
+    >>> data["stats"]["total"]  # doctest: +SKIP
+    42
+    """
+    with get_db(db_path) as conn:
+        run_row = conn.execute(
+            "SELECT * FROM verification_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+
+        if run_row is None:
+            raise KeyError(f"No verification run with id={run_id}")
+
+        result_rows = conn.execute(
+            """
+            SELECT file_path, catalog_path, status, checksum, size, mtime
+            FROM verification_results
+            WHERE run_id = ?
+            ORDER BY id
+            """,
+            (run_id,),
+        ).fetchall()
+
+    stats = {
+        "total": run_row["total"],
+        "registered": run_row["registered"],
+        "unregistered": run_row["unregistered"],
+        "errors": run_row["errors"],
+        "changed": run_row["changed"],
+        "run_timestamp": run_row["run_timestamp"],
+        "local_dir": run_row["local_dir"],
+        "catalog_path": run_row["catalog_path"],
+        "site": run_row["site"],
+    }
+    results = [dict(row) for row in result_rows]
+
+    return {"stats": stats, "results": results}

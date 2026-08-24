@@ -1,4 +1,4 @@
-"""CSV and HTML report generation.
+"""HTML report generation.
 
 Renders verification results into human-readable artifacts. The CSV report is
 a flat table suitable for spreadsheets and downstream tooling; the HTML report
@@ -8,32 +8,36 @@ Functions
 ---------
 get_status_color
     Map a status string to a hex color for the HTML report.
-generate_csv_report
-    Write results to a CSV file.
 generate_html_report
     Write results and summary statistics to an HTML file.
+generate_html_report_from_db
+    Load a run from the database and render its HTML report.
 
 Notes
 -----
-Status strings are normalized to ``VERIFIED``, ``UNREGISTERED``, and
-``ERROR``. The HTML color and sort-priority maps recognize all three so that
-every row renders with a meaningful color.
+Status strings are normalized to ``VERIFIED``, ``UNREGISTERED``,
+``FILE_CHANGED``, and ``ERROR``. The HTML color and sort-priority maps
+recognize all four so that every row renders with a meaningful color.
+
 """
 
 from __future__ import annotations
 
-import csv
 from datetime import datetime
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Union
+
+from cdms_verify.database import load_run
 
 #: Sort priority used by the HTML status column (lower sorts first).
 STATUS_PRIORITY: Dict[str, int] = {
     "VERIFIED": 1,
     "UNREGISTERED": 2,
-    "ERROR": 3,
+    "FILE_CHANGED": 3,
+    "ERROR": 4,
 }
 
-#: Report column order shared by the CSV and HTML renderers.
+#: Report column order used by the HTML renderer.
 FIELDNAMES = ["file_path", "catalog_path", "status", "checksum"]
 
 
@@ -43,7 +47,8 @@ def get_status_color(status: str) -> str:
     Parameters
     ----------
     status : str
-        A status string such as ``VERIFIED``, ``UNREGISTERED``, or ``ERROR``.
+        A status string such as ``VERIFIED``, ``UNREGISTERED``,
+        ``FILE_CHANGED``, or ``ERROR``.
 
     Returns
     -------
@@ -61,30 +66,9 @@ def get_status_color(status: str) -> str:
     return {
         "VERIFIED": "#00ff9d",
         "UNREGISTERED": "#ff4d4d",
+        "FILE_CHANGED": "#ffcc00",
         "ERROR": "#ff6b6b",
     }.get(status, "#a0a0a0")
-
-
-def generate_csv_report(results: List[Dict[str, Any]], output_path: str) -> None:
-    """Write verification results to a CSV file.
-
-    Parameters
-    ----------
-    results : list of dict
-        Per-file result rows. Each dict must contain the keys listed in
-        :data:`FIELDNAMES`.
-    output_path : str
-        Destination path for the CSV file. Overwritten if it exists.
-
-    Examples
-    --------
-    >>> generate_csv_report(results, "report.csv")  # doctest: +SKIP
-    """
-    with open(output_path, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
-        writer.writeheader()
-        writer.writerows(results)
-
 
 def generate_html_report(
     results: List[Dict[str, Any]],
@@ -100,7 +84,7 @@ def generate_html_report(
         ``catalog_path``, ``status``, and ``checksum``.
     stats : dict of str to int
         Run-level summary with the keys ``total``, ``registered``,
-        ``unregistered``, and ``errors``.
+        ``unregistered``, ``changed``, and ``errors``.
     output_path : str
         Destination path for the HTML file. Overwritten if it exists.
 
@@ -136,6 +120,7 @@ def generate_html_report(
         total=stats["total"],
         registered=stats["registered"],
         unregistered=stats["unregistered"],
+        changed=stats.get("changed", 0),
         errors=stats["errors"],
         rows_html=rows_html,
     )
@@ -143,6 +128,33 @@ def generate_html_report(
     with open(output_path, "w", encoding="utf-8") as handle:
         handle.write(html_content)
 
+def generate_html_report_from_db(
+    db_path: Union[str, Path],
+    run_id: int,
+    output_path: str,
+) -> None:
+    """Load a verification run from the database and render its HTML report.
+
+    This is the preferred entry point: the database is the source of truth,
+    so the report reflects exactly what was persisted (including reused
+    checksums from prior runs).
+
+    Parameters
+    ----------
+    db_path : str or pathlib.Path
+        Path to the SQLite database file.
+    run_id : int
+        Identifier of the run to render, as returned by
+        :func:`cdms_verify.database.save_results_to_db`.
+    output_path : str
+        Destination path for the HTML file. Overwritten if it exists.
+
+    Examples
+    --------
+    >>> generate_html_report_from_db("verification.db", 1, "report.html")  # doctest: +SKIP
+    """
+    data = load_run(db_path, run_id)
+    generate_html_report(data["results"], data["stats"], output_path)
 
 # The HTML template is kept module-level to keep generate_html_report focused
 # on data assembly. Double braces escape literal braces for str.format.
@@ -158,6 +170,7 @@ _HTML_TEMPLATE = """
             --bg-color: #121212; --card-bg: #1e1e1e; --text-main: #e0e0e0;
             --text-muted: #a0a0a0; --border-color: #333333;
             --accent-blue: #2196f3; --neon-green: #00ff9d; --bright-red: #ff4d4d;
+            --amber: #ffcc00;
         }}
         body {{ font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0;
                 padding: 20px; background-color: var(--bg-color); color: var(--text-main); }}
@@ -191,6 +204,7 @@ _HTML_TEMPLATE = """
         <div class="summary-item"><span class="summary-label">Total Files</span><span class="summary-value">{total}</span></div>
         <div class="summary-item"><span class="summary-label">Verified</span><span class="summary-value" style="color: var(--neon-green);">{registered}</span></div>
         <div class="summary-item"><span class="summary-label">Unregistered</span><span class="summary-value" style="color: var(--bright-red);">{unregistered}</span></div>
+        <div class="summary-item"><span class="summary-label">Changed</span><span class="summary-value" style="color: var(--amber);">{changed}</span></div>
         <div class="summary-item"><span class="summary-label">Errors</span><span class="summary-value" style="color: var(--bright-red);">{errors}</span></div>
     </div>
     <div class="table-wrapper">
