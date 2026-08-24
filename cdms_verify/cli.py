@@ -222,17 +222,17 @@ def verify_catalog_registration(
                         "  \u21ba reused stored checksum (unchanged)", fg="blue"
                     ))
             else:
-                # File changed (or is now un-stat-able): this is an error.
+                # File changed (or is now un-stat-able): flag as FILE_CHANGED.
                 # We deliberately do NOT recompute the checksum here.
-                result_row["status"] = "ERROR"
+                result_row["status"] = "FILE_CHANGED"
                 result_row["checksum"] = prior["checksum"]  # keep last-known value
                 result_row["size"] = prior["size"]
                 result_row["mtime"] = prior["mtime"]
-                stats["errors"] += 1
+                stats["changed"] += 1
                 changed += 1
                 click.echo(click.style(
-                    f"ERROR (file changed since last run): {local_file}",
-                    fg="red",
+                    f"FILE_CHANGED: {local_file}",
+                    fg="yellow",
                 ))
                 results.append(result_row)
                 continue  # skip the registration check for changed files
