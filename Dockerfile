@@ -1,36 +1,31 @@
+# syntax=docker/dockerfile:1.4
 # ---- Build stage -------------------------------------------------------
 FROM python:3.12 as intermediate
 
-MAINTAINER Omar Moreno <omoreno@slac.stanford.edu>
+LABEL org.opencontainers.image.authors="Omar Moreno <omoreno@slac.stanford.edu>"
 
 # Add a label that identifies this as an intermediate layer.
 LABEL stage=intermediate
 
-# The SSH key is passed as a build argument.
-ARG SSH_KEY
+# Install packages required for SSH-based git clone.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git openssh-client && \
+    rm -rf /var/lib/apt/lists/*
 
-# * Create an SSH directory.
-# * Populate the private key file.
-# * Set the correct permissions.
-# * Add gitlab to the list of known host.
-RUN mkdir -p /root/.ssh/ && \
-    echo "$SSH_KEY" > /root/.ssh/id_ed25519 && \
-    chmod -R 700 /root/.ssh/ && \
-    ssh-keyscan -t ed25519 gitlab.com github.com > /root/.ssh/known_hosts
-
-# Clone the data catalog repo into the itermediate image.
-RUN git clone git@gitlab.com:supercdms/DataHandling/DataCat.git
-
-# Clone the verification package
-RUN git clone git@github.com:omar-moreno/cdms-verify.git
+# Clone private repos using BuildKit SSH forwarding.
+RUN --mount=type=ssh mkdir -p /root/.ssh && \
+    chmod 700 /root/.ssh && \
+    ssh-keyscan -t ed25519 gitlab.com github.com > /root/.ssh/known_hosts && \
+    git clone git@gitlab.com:supercdms/DataHandling/DataCat.git && \
+    git clone git@github.com:omar-moreno/cdms-verify.git
 
 # This is final base image
 FROM python:3.12
 
 # Update the image and install dependencies.
-RUN apt-get update &&  \
-    apt-get install -y \ 
-        openssl
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssl && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install all external packages into /opt.
 WORKDIR /opt

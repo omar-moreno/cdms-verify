@@ -11,3 +11,7 @@ spec:
     metadata:
       labels:
         app: cdms-verify
+    spec:
+      containers:
+      - name: cdms-verify-dev
+        image: omarmoreno/cdms-verify:latest
