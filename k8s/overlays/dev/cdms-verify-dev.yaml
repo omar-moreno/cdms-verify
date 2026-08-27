@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: cdms-verify
+spec: 
+  template:
+    spec:
+      containers:
+      - name: cdms-verify
+        image: omarmoreno/cdms-verify:0.1.0
+        imagePullPolicy: Always
+        args:
+          - "--local-dir"
+          - "/sdf/data/supercdms/data/CDMS/SNOLAB/R6"
+          - "--db-path"
+          - "/opt/db/verification.db"
+          - "--output-dir"
+          - "/opt/reports"
+          - "--verbose"
+        volumeMounts:
+          - name: db-path
+            mountPath: /opt/db
+            subPath: workarea/software/cdms-verify/db
+          - name: reports-path
+            mountPath: /opt/reports
+            subPath: workarea/software/cdms-verify/reports
+          - name: sdf-data
+            mountPath: /sdf/data/supercdms/data
+            subPath: data
+      volumes:
+        - name: db-path
+          persistentVolumeClaim:
+            claimName: sdf-data-supercdms-db-rw
+        - name: reports-path
+          persistentVolumeClaim:
+            claimName: sdf-data-supercdms-reports-rw
+        - name: sdf-data
+          persistentVolumeClaim:
+            claimName: sdf-data-supercdms-ro

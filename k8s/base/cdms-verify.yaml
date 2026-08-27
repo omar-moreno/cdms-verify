@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cdms-verify
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cdms-verify
+  template:
+    metadata:
+      labels:
+        app: cdms-verify
+    spec:
+      containers:
+      - name: cdms-verify
+        image: omarmoreno/cdms-verify:latest
