@@ -16,7 +16,7 @@ generate_html_report_from_db
 Notes
 -----
 Status strings are normalized to ``VERIFIED``, ``UNREGISTERED``,
-``FILE_CHANGED``, and ``ERROR``. The HTML color and sort-priority maps
+and ``ERROR``. The HTML color and sort-priority maps
 recognize all four so that every row renders with a meaningful color.
 
 """
@@ -33,8 +33,7 @@ from cdms_verify.database import load_run
 STATUS_PRIORITY: Dict[str, int] = {
     "VERIFIED": 1,
     "UNREGISTERED": 2,
-    "FILE_CHANGED": 3,
-    "ERROR": 4,
+    "ERROR": 3,
 }
 
 #: Report column order used by the HTML renderer.
@@ -47,8 +46,7 @@ def get_status_color(status: str) -> str:
     Parameters
     ----------
     status : str
-        A status string such as ``VERIFIED``, ``UNREGISTERED``,
-        ``FILE_CHANGED``, or ``ERROR``.
+        A status string such as ``VERIFIED``, ``UNREGISTERED``, or ``ERROR``.
 
     Returns
     -------
@@ -66,7 +64,6 @@ def get_status_color(status: str) -> str:
     return {
         "VERIFIED": "#00ff9d",
         "UNREGISTERED": "#ff4d4d",
-        "FILE_CHANGED": "#ffcc00",
         "ERROR": "#ff6b6b",
     }.get(status, "#a0a0a0")
 
@@ -84,7 +81,7 @@ def generate_html_report(
         ``catalog_path``, ``status``, and ``checksum``.
     stats : dict of str to int
         Run-level summary with the keys ``total``, ``registered``,
-        ``unregistered``, ``changed``, and ``errors``.
+        ``unregistered``, and ``errors``.
     output_path : str
         Destination path for the HTML file. Overwritten if it exists.
 
@@ -120,7 +117,6 @@ def generate_html_report(
         total=stats["total"],
         registered=stats["registered"],
         unregistered=stats["unregistered"],
-        changed=stats.get("changed", 0),
         errors=stats["errors"],
         rows_html=rows_html,
     )
@@ -204,7 +200,6 @@ _HTML_TEMPLATE = """
         <div class="summary-item"><span class="summary-label">Total Files</span><span class="summary-value">{total}</span></div>
         <div class="summary-item"><span class="summary-label">Verified</span><span class="summary-value" style="color: var(--neon-green);">{registered}</span></div>
         <div class="summary-item"><span class="summary-label">Unregistered</span><span class="summary-value" style="color: var(--bright-red);">{unregistered}</span></div>
-        <div class="summary-item"><span class="summary-label">Changed</span><span class="summary-value" style="color: var(--amber);">{changed}</span></div>
         <div class="summary-item"><span class="summary-label">Errors</span><span class="summary-value" style="color: var(--bright-red);">{errors}</span></div>
     </div>
     <div class="table-wrapper">

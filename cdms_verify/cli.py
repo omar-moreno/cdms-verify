@@ -21,7 +21,7 @@ import click
 
 from cdms_verify.catalog import get_datasets
 from cdms_verify.database import (
-        get_existing_file_info,
+        get_known_file_paths,
         init_db, 
         save_results_to_db
 )
@@ -105,22 +105,13 @@ def verify_catalog_registration(
 
     Notes
     -----
-    Change detection is treated as a distinct failure condition. On each run
-    the file's current size and mtime are compared against the values stored
-    in the most recent prior run:
-
-    - **Unchanged** (size *and* mtime match): the stored checksum is reused
-      and the file proceeds to the registration check.
-    - **Changed** (size *or* mtime differs, or the file can no longer be
-      stat-ed): the file is flagged with status ``FILE_CHANGED`` and its
-      checksum is **not** recomputed. Per the retained-record policy, the old
-      checksum, size, and mtime are stored together so the change re-flags on
-      every subsequent run until the file is re-verified.
-    - **New** (no prior record): the checksum is computed for the first time.
-
-    Any of unregistered files, checksum errors, or changed files causes the
-    command to exit with status ``1``. Size and mtime are persisted for new
-    and unchanged files; changed files retain the last-known size/mtime.
+    Files that already appear in the database (matched by ``file_path``) are
+    skipped entirely: they are not re-checksummed, not registration-checked,
+    and not written again. Only newly discovered files are processed and
+    recorded. Every invocation writes a ``verification_runs`` row so there is
+    an audit trail of each run, even when no new files were found. The size
+    and mtime of new files are persisted so an external tool can perform its
+    own change detection independently.
 
     """
     output_path_obj = Path(output_dir)
@@ -168,22 +159,33 @@ def verify_catalog_registration(
 
     # Batch-fetch prior records (checksum + size + mtime) so we can skip
     # recomputation for files that are unchanged. One query instead of N.
-    cached_info = get_existing_file_info(db_path, local_files)
+    #cached_info = get_existing_file_info(db_path, local_files)
+    #if verbose:
+    #    click.echo(f"Found {len(cached_info)} cached record(s) from prior runs.\n")
+
+    # Fetch the set of files already recorded in the database. Any file that
+    # already exists is skipped entirely on this run.
+    known_paths = get_known_file_paths(db_path, local_files)
     if verbose:
-        click.echo(f"Found {len(cached_info)} cached record(s) from prior runs.\n")
+        click.echo(
+            f"{len(known_paths)} of {len(local_files)} files already known."
+        )
 
     stats: Dict[str, int] = {
         "total": 0, "registered": 0, "unregistered": 0, 
-        "errors": 0, "changed": 0,
+        "errors": 0,
     }
     results: List[Dict[str, Any]] = []
 
-    reused = 0
-    computed = 0
-    changed = 0
-
     for local_file in local_files:
         stats["total"] += 1
+        
+        # Skip any file that already exists in the database.
+        if local_file in known_paths:
+            if verbose:
+                click.echo(click.style(f"  \u23ed  SKIP (already in DB): {local_file}", fg="blue"))
+            continue
+
         expected = normalize_path(extract_catalog_path(Path(local_file)))
 
         if verbose:
@@ -192,8 +194,7 @@ def verify_catalog_registration(
         # Stat the file now so we can (a) detect changes vs. the cached record
         # and (b) persist current size/mtime for external change-detection.
         fstat = stat_file(local_file)
-
-        prior = cached_info.get(local_file)
+        checksum = calculate_sha256(local_file)
 
         result_row: Dict[str, Any] = {
             "file_path": local_file,
@@ -204,45 +205,6 @@ def verify_catalog_registration(
             "mtime": fstat.mtime,
         }
 
-        if prior is not None:
-            # A prior record exists: determine whether the file has changed.
-            can_compare = fstat.size is not None and fstat.mtime is not None
-            unchanged = (
-                can_compare
-                and prior["size"] == fstat.size
-                and prior["mtime"] == fstat.mtime
-            )
-
-            if unchanged:
-                # File is byte-for-byte identical (per size/mtime): reuse.
-                result_row["checksum"] = prior["checksum"]
-                reused += 1
-                if verbose:
-                    click.echo(click.style(
-                        "  \u21ba reused stored checksum (unchanged)", fg="blue"
-                    ))
-            else:
-                # File changed (or is now un-stat-able): flag as FILE_CHANGED.
-                # We deliberately do NOT recompute the checksum here.
-                result_row["status"] = "FILE_CHANGED"
-                result_row["checksum"] = prior["checksum"]  # keep last-known value
-                result_row["size"] = prior["size"]
-                result_row["mtime"] = prior["mtime"]
-                stats["changed"] += 1
-                changed += 1
-                click.echo(click.style(
-                    f"FILE_CHANGED: {local_file}",
-                    fg="yellow",
-                ))
-                results.append(result_row)
-                continue  # skip the registration check for changed files
-        else:
-            # No prior record: compute the checksum for the first time.
-            result_row["checksum"] = calculate_sha256(local_file)
-            computed += 1
-            
-        # Registration check (only reached for unchanged or brand-new files).
-        checksum = result_row["checksum"]
         if checksum == CHECKSUM_ERROR:
             result_row["status"] = "ERROR"
             stats["errors"] += 1
@@ -261,8 +223,7 @@ def verify_catalog_registration(
         results.append(result_row)
    
     click.echo(
-        f"\nChecksums: {computed} computed, {reused} reused, "
-        f"{changed} flagged as changed."
+        f"\nProcessed {len(results)} new file(s); "
     )
     click.echo(f"Datasets in catalog with no local match: {len(dataset_paths)}")
 
@@ -285,15 +246,9 @@ def verify_catalog_registration(
     click.echo(f"Total Files Scanned:  {stats['total']}")
     click.echo(f"Correctly Registered: {click.style(str(stats['registered']), fg='green')}")
     click.echo(f"Unregistered:         {click.style(str(stats['unregistered']), fg='red')}")
-    click.echo(f"Changed:              {click.style(str(stats['changed']), fg='yellow')}")
     click.echo(f"Errors:               {click.style(str(stats['errors']), fg='red')}")
 
-    discrepancies = (
-        stats["unregistered"] > 0
-        or stats["errors"] > 0
-        or stats["changed"] > 0
-    )
-    if discrepancies:
+    if stats["unregistered"] > 0 or stats["errors"] > 0:
         click.echo("\n" + click.style(
             "\u26a0\ufe0f  Discrepancies found. Review or re-registration needed.",
             fg="yellow", bold=True,
@@ -301,11 +256,9 @@ def verify_catalog_registration(
         sys.exit(1)
 
     click.echo("\n" + click.style(
-        "\u2705 All local files are correctly registered and unchanged.",
-        fg="green", bold=True,
+        "\u2705 All new local files are correctly registered.", fg="green", bold=True,
     ))
     sys.exit(0)
-
 
 if __name__ == "__main__":
     verify_catalog_registration()

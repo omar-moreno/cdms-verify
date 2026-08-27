@@ -220,74 +220,57 @@ def save_results_to_db(
 
     return run_id
 
-def get_existing_file_info(
+def get_known_file_paths(
     db_path: Union[str, Path],
     file_paths: List[str],
-) -> Dict[str, Dict[str, Any]]:
-    """Return the most recent stored checksum, size, and mtime per file path.
+) -> set:
+    """Return the subset of file paths already recorded in the database.
 
-    For every requested ``file_path``, returns the record from the most recent
-    run in which that file appeared with a usable checksum.
+    A file "exists in the database" if it appears in any prior
+    ``verification_results`` row, regardless of that row's status.
 
     Parameters
     ----------
     db_path : str or pathlib.Path
         Path to the SQLite database file. Must already be initialized.
     file_paths : list of str
-        The local file paths to look up.
+        The local file paths to check for prior existence.
 
     Returns
     -------
-    dict of str to dict
-        A mapping from ``file_path`` to a record dict with keys ``checksum``,
-        ``size``, and ``mtime``. File paths with no usable prior record are
-        omitted from the mapping.
+    set of str
+        The subset of ``file_paths`` that already appear in the database.
+
+    See Also
+    --------
+    save_results_to_db : Writes the rows this function reads back.
 
     Notes
     -----
-    Rows whose checksum is ``NULL``, empty, or equal to the error sentinel
-    ``ERROR_CALCULATING`` are ignored so that a previously failed checksum is
-    retried rather than reused. The returned ``size`` and ``mtime`` allow a
-    caller to decide whether the cached checksum is still trustworthy.
+    Existence is keyed on ``file_path`` alone. No checksum, size, or mtime
+    comparison is performed; a file that was recorded in any previous run is
+    considered known.
 
     Examples
     --------
-    >>> get_existing_file_info("verification.db", ["/data/a.dat"])  # doctest: +SKIP
-    {'/data/a.dat': { 'checksum': 'abc123...', 'size': 1024, 'mtime': 170000000.0}}
+    >>> get_known_file_paths("verification.db", ["/data/a.dat", "/data/b.dat"])  # doctest: +SKIP
+    {'/data/a.dat'}
     """
     if not file_paths:
-        return {}
-
-    from cdms_verify.scanning import CHECKSUM_ERROR
+        return set()
 
     placeholders = ",".join("?" for _ in file_paths)
-    # For each file_path, pick the checksum from the highest (latest) run_id.
     query = f"""
-        SELECT r.file_path, r.checksum, r.size, r.mtime
-        FROM verification_results AS r
-        JOIN (
-            SELECT file_path, MAX(run_id) AS max_run
-            FROM verification_results
-            WHERE file_path IN ({placeholders})
-              AND checksum IS NOT NULL
-              AND checksum != ''
-              AND checksum != ?
-            GROUP BY file_path
-        ) AS latest
-          ON r.file_path = latest.file_path
-         AND r.run_id = latest.max_run
+        SELECT DISTINCT file_path
+        FROM verification_results
+        WHERE file_path IN ({placeholders})
     """
 
     with get_db(db_path) as conn:
-        rows = conn.execute(query, tuple(file_paths) + (CHECKSUM_ERROR,)).fetchall()
+        rows = conn.execute(query, tuple(file_paths)).fetchall()
 
-    return {row["file_path"]: { 
-                "checksum": row["checksum"],
-                "size": row["size"],
-                "mtime": row["mtime"],
-            }
-            for row in rows
-    }
+    return {row["file_path"] for row in rows}
+
 
 def load_run(
     db_path: Union[str, Path],
