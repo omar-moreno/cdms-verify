@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.4
 # ---- Build stage -------------------------------------------------------
-FROM python:3.12 as intermediate
+FROM python:3.12 AS intermediate
 
 LABEL org.opencontainers.image.authors="Omar Moreno <omoreno@slac.stanford.edu>"
 
@@ -37,12 +37,10 @@ COPY --from=intermediate /DataCat DataCat
 RUN cd DataCat && \
     pip install .
 
-WORKDIR /opt
-
 COPY --from=intermediate /cdms-verify cdms-verify
 
 RUN cd cdms-verify && \
     pip install .
 
-WORKDIR cdms-verify
+WORKDIR /opt/cdms-verify
 ENTRYPOINT ["cdms-verify"]

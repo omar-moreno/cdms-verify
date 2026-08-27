@@ -6,7 +6,7 @@ spec:
   template:
     spec:
       containers:
-      - name: cdms-verify-dev
+      - name: cdms-verify
         image: omarmoreno/cdms-verify:0.1.0
         imagePullPolicy: Always
         args:
