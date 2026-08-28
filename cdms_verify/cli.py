@@ -21,9 +21,10 @@ import click
 
 from cdms_verify.catalog import get_datasets
 from cdms_verify.database import (
+        get_db,
         get_known_file_paths,
         init_db, 
-        save_results,
+        insert_result,
 )
 from cdms_verify.paths import extract_catalog_path, normalize_path
 from cdms_verify.scanning import ( 
@@ -96,13 +97,13 @@ def verify_catalog_registration(
 
     Notes
     -----
-    Files that already appear in the database (matched by ``file_path``) are
-    skipped entirely: they are not re-checksummed, not registration-checked,
-    and not written again. Only newly discovered files are processed and
-    recorded. Every invocation writes a ``verification_runs`` row so there is
-    an audit trail of each run, even when no new files were found. The size
-    and mtime of new files are persisted so an external tool can perform its
-    own change detection independently.
+    Results are persisted incrementally: each newly processed file is inserted
+    and committed to the database immediately, rather than in a single batch at
+    the end. If the process is interrupted mid-scan (crash, eviction, timeout),
+    every file completed before the interruption is already durably stored.
+    Files already present in the database are skipped. The size and mtime of
+    new files are persisted so an external tool can perform its own change
+    detection.
 
     """
     # Ensure the database schema exists before we read from or write to it.
@@ -157,51 +158,59 @@ def verify_catalog_registration(
     registered = 0
     unregistered = 0
     errors = 0
+    inserted = 0
+    processed = 0
 
-    for local_file in local_files:
-        # Skip any file that already exists in the database.
-        if local_file in known_paths:
+    # Hold a single connection open for the whole scan and commit each row as
+    # it is processed, so an interruption does not lose completed work.
+    with get_db(db_path) as conn:
+        for local_file in local_files:
+            # Skip any file that already exists in the database.
+            if local_file in known_paths:
+                if verbose:
+                    click.echo(click.style(
+                        f"  \u23ed  SKIP (already in DB): {local_file}", fg="blue"
+                    ))
+                continue
+
+            expected = normalize_path(extract_catalog_path(Path(local_file)))
             if verbose:
-                click.echo(click.style(f"  \u23ed  SKIP (already in DB): {local_file}", fg="blue"))
-            continue
+                click.echo(f"Checking: {local_file} -> {expected}")
 
-        expected = normalize_path(extract_catalog_path(Path(local_file)))
-        if verbose:
-            click.echo(f"Checking: {local_file} -> {expected}")
+            fstat = stat_file(local_file)
+            checksum = calculate_sha256(local_file)
 
-        fstat = stat_file(local_file)
-        checksum = calculate_sha256(local_file)
+            result_row: Dict[str, Any] = {
+                "file_path": local_file,
+                "catalog_path": expected,
+                "status": "",
+                "checksum": "",
+                "size": fstat.size,
+                "mtime": fstat.mtime,
+            }
 
-        result_row: Dict[str, Any] = {
-            "file_path": local_file,
-            "catalog_path": expected,
-            "status": "",
-            "checksum": "",
-            "size": fstat.size,
-            "mtime": fstat.mtime,
-        }
+            if checksum == CHECKSUM_ERROR:
+                result_row["status"] = "ERROR"
+                errors += 1
+                click.echo(click.style(f"ERROR (checksum): {local_file}", fg="red"))
+            elif expected in dataset_paths:
+                result_row["status"] = "VERIFIED"
+                registered += 1
+                dataset_paths.remove(expected)
+                if verbose:
+                    click.echo(click.style(f"\u2705 VERIFIED: {local_file}", fg="green"))
+            else:
+                result_row["status"] = "UNREGISTERED"
+                unregistered += 1
+                click.echo(click.style(f"UNREGISTERED: {local_file}", fg="yellow"))
 
-        if checksum == CHECKSUM_ERROR:
-            result_row["status"] = "ERROR"
-            errors += 1
-            click.echo(click.style(f"ERROR (checksum): {local_file}", fg="red"))
-        elif expected in dataset_paths:
-            result_row["status"] = "VERIFIED"
-            registered += 1
-            dataset_paths.remove(expected)
-            if verbose:
-                click.echo(click.style(f"\u2705 VERIFIED: {local_file}", fg="green"))
-        else:
-            result_row["status"] = "UNREGISTERED"
-            unregistered += 1
-            click.echo(click.style(f"UNREGISTERED: {local_file}", fg="yellow"))
-
-        results.append(result_row)
+            # Persist this row immediately (committed inside insert_result).
+            if insert_result(conn, result_row, site):
+                inserted += 1
+            processed += 1
    
-    # Persist new files (idempotent per file_path). site is stored per row.
-    inserted = save_results(db_path, results, site)
-    click.echo(f"\nInserted {inserted} new file(s) into: {db_path}")
-    
+    click.echo(f"\nProcessed {processed} new file(s); inserted {inserted} row(s) into: {db_path}")
+
     # Console summary (counts are for THIS run's newly processed files).
     click.echo("\n" + "=" * 60)
     click.echo(click.style("VERIFICATION SUMMARY (new files this run)", fg="cyan", bold=True))

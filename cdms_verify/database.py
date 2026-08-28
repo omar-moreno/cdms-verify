@@ -18,6 +18,8 @@ get_known_file_paths
     Return the subset of given paths already recorded.
 get_summary
     Return aggregate status counts across all recorded files.
+insert_result
+    Insert one file result on an existing connection and commit it.
 """
 
 from __future__ import annotations
@@ -265,4 +267,66 @@ def get_summary(db_path: Union[str, Path]) -> Dict[str, int]:
         "errors": row["errors"] or 0,
     }
 
+def insert_result(
+    conn: sqlite3.Connection,
+    result: Dict[str, Any],
+    site: str,
+) -> bool:
+    """Insert one file result on an existing connection and commit it.
 
+    Uses ``INSERT OR IGNORE`` so a file whose ``file_path`` already exists is
+    silently skipped. The insert is committed immediately, making each row
+    durable the moment it is processed — so an interruption mid-scan does not
+    lose files already handled.
+
+    Parameters
+    ----------
+    conn : sqlite3.Connection
+        An open connection (typically obtained from :func:`get_db`).
+    result : dict
+        A single per-file row. Must contain ``file_path``, ``catalog_path``,
+        ``status``, and ``checksum``, and may contain ``size`` (int or None)
+        and ``mtime`` (float or None).
+    site : str
+        The catalog site that was queried, stored on the new row.
+
+    Returns
+    -------
+    bool
+        ``True`` if a row was inserted, ``False`` if it was ignored because
+        the ``file_path`` already existed.
+
+    Notes
+    -----
+    A ``scan_timestamp`` is generated per call, so incrementally-inserted rows
+    carry the time each file was actually recorded rather than a single
+    run-wide timestamp.
+
+    Examples
+    --------
+    >>> with get_db("verification.db") as conn:  # doctest: +SKIP
+    ...     insert_result(conn, row, "SLAC")
+    True
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor = conn.execute(
+        """
+        INSERT OR IGNORE INTO verification_results
+            (file_path, catalog_path, status, checksum,
+             size, mtime, site, scan_timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            result["file_path"],
+            result["catalog_path"],
+            result["status"],
+            result["checksum"],
+            result.get("size"),
+            result.get("mtime"),
+            site,
+            timestamp,
+        ),
+    )
+    # Commit immediately so this row survives a subsequent crash.
+    conn.commit()
+    return cursor.rowcount > 0
