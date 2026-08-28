@@ -23,10 +23,9 @@ from cdms_verify.catalog import get_datasets
 from cdms_verify.database import (
         get_known_file_paths,
         init_db, 
-        save_results_to_db
+        save_results,
 )
 from cdms_verify.paths import extract_catalog_path, normalize_path
-from cdms_verify.reports import generate_html_report_from_db
 from cdms_verify.scanning import ( 
     CHECKSUM_ERROR, 
     calculate_sha256, 
@@ -53,11 +52,6 @@ from CDMSDataCatalog import CDMSDataCatalog
     help="Scan subdirectories recursively (default: True).",
 )
 @click.option(
-    "--output-dir", "-o", default=".",
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Directory to save the HTML report (default: current dir).",
-)
-@click.option(
     "--db-path", default="verification.db",
     type=click.Path(dir_okay=False),
     help="SQLite database file for storing results (default: verification.db).",
@@ -70,7 +64,6 @@ def verify_catalog_registration(
     local_dir: str,
     site: str,
     recursive: bool,
-    output_dir: str,
     db_path: str,
     verbose: bool,
 ) -> None:
@@ -78,8 +71,8 @@ def verify_catalog_registration(
 
     Scans ``local_dir``, derives each file's expected catalog path, checks it
     against datasets registered at ``site``, computes a SHA256 checksum (only
-    when one is not already stored from a prior run), persists results to a
-    SQLite database, and renders an HTML report from that database.
+    when one is not already stored from a prior run) and persists results to a
+    SQLite database.
 
     Parameters
     ----------
@@ -89,8 +82,6 @@ def verify_catalog_registration(
         Target catalog site (e.g. ``SLAC``).
     recursive : bool
         Whether to descend into subdirectories.
-    output_dir : str
-        Directory in which the HTML report is written; created if needed.
     db_path : str
         Path to the SQLite database file for persisting results.
     verbose : bool
@@ -114,9 +105,6 @@ def verify_catalog_registration(
     own change detection independently.
 
     """
-    output_path_obj = Path(output_dir)
-    output_path_obj.mkdir(parents=True, exist_ok=True)
-
     # Ensure the database schema exists before we read from or write to it.
     init_db(db_path)
 
@@ -136,7 +124,6 @@ def verify_catalog_registration(
     click.echo(f"  Local Directory : {local_dir}")
     click.echo(f"  Catalog Prefix  : {catalog_path}")
     click.echo(f"  Target Site     : {site}")
-    click.echo(f"  Output Dir      : {output_dir}")
     click.echo(f"  Database        : {db_path}")
     click.echo("-" * 60)
 
@@ -157,12 +144,6 @@ def verify_catalog_registration(
     dataset_paths = [d.path for d in datasets]
     click.echo(f"Found {len(dataset_paths)} datasets registered in the catalog.")
 
-    # Batch-fetch prior records (checksum + size + mtime) so we can skip
-    # recomputation for files that are unchanged. One query instead of N.
-    #cached_info = get_existing_file_info(db_path, local_files)
-    #if verbose:
-    #    click.echo(f"Found {len(cached_info)} cached record(s) from prior runs.\n")
-
     # Fetch the set of files already recorded in the database. Any file that
     # already exists is skipped entirely on this run.
     known_paths = get_known_file_paths(db_path, local_files)
@@ -171,15 +152,13 @@ def verify_catalog_registration(
             f"{len(known_paths)} of {len(local_files)} files already known."
         )
 
-    stats: Dict[str, int] = {
-        "total": 0, "registered": 0, "unregistered": 0, 
-        "errors": 0,
-    }
     results: List[Dict[str, Any]] = []
 
+    registered = 0
+    unregistered = 0
+    errors = 0
+
     for local_file in local_files:
-        stats["total"] += 1
-        
         # Skip any file that already exists in the database.
         if local_file in known_paths:
             if verbose:
@@ -187,12 +166,9 @@ def verify_catalog_registration(
             continue
 
         expected = normalize_path(extract_catalog_path(Path(local_file)))
-
         if verbose:
             click.echo(f"Checking: {local_file} -> {expected}")
 
-        # Stat the file now so we can (a) detect changes vs. the cached record
-        # and (b) persist current size/mtime for external change-detection.
         fstat = stat_file(local_file)
         checksum = calculate_sha256(local_file)
 
@@ -207,50 +183,37 @@ def verify_catalog_registration(
 
         if checksum == CHECKSUM_ERROR:
             result_row["status"] = "ERROR"
-            stats["errors"] += 1
+            errors += 1
             click.echo(click.style(f"ERROR (checksum): {local_file}", fg="red"))
         elif expected in dataset_paths:
             result_row["status"] = "VERIFIED"
-            stats["registered"] += 1
+            registered += 1
             dataset_paths.remove(expected)
             if verbose:
                 click.echo(click.style(f"\u2705 VERIFIED: {local_file}", fg="green"))
         else:
             result_row["status"] = "UNREGISTERED"
-            stats["unregistered"] += 1
+            unregistered += 1
             click.echo(click.style(f"UNREGISTERED: {local_file}", fg="yellow"))
 
         results.append(result_row)
    
-    click.echo(
-        f"\nProcessed {len(results)} new file(s); "
-    )
-    click.echo(f"Datasets in catalog with no local match: {len(dataset_paths)}")
-
-    # Persist to database.
-    run_id = save_results_to_db(
-        db_path, results, stats, local_dir, catalog_path or "/CDMS", site,
-    )
-    click.echo(f"Results saved to database (run #{run_id}): {db_path}")
+    # Persist new files (idempotent per file_path). site is stored per row.
+    inserted = save_results(db_path, results, site)
+    click.echo(f"\nInserted {inserted} new file(s) into: {db_path}")
     
-    # Generate the HTML report by reading the run back from the database.
-    html_filename = output_path_obj / "verification_report.html"
-    click.echo("\nGenerating report from database...")
-    generate_html_report_from_db(db_path, run_id, str(html_filename))
-    click.echo(f"HTML report saved to: {html_filename}")
-
-    # Summary.
+    # Console summary (counts are for THIS run's newly processed files).
     click.echo("\n" + "=" * 60)
-    click.echo(click.style("VERIFICATION SUMMARY", fg="cyan", bold=True))
+    click.echo(click.style("VERIFICATION SUMMARY (new files this run)", fg="cyan", bold=True))
     click.echo("=" * 60)
-    click.echo(f"Total Files Scanned:  {stats['total']}")
-    click.echo(f"Correctly Registered: {click.style(str(stats['registered']), fg='green')}")
-    click.echo(f"Unregistered:         {click.style(str(stats['unregistered']), fg='red')}")
-    click.echo(f"Errors:               {click.style(str(stats['errors']), fg='red')}")
+    click.echo(f"New Files Processed:  {len(results)}")
+    click.echo(f"Correctly Registered: {click.style(str(registered), fg='green')}")
+    click.echo(f"Unregistered:         {click.style(str(unregistered), fg='red')}")
+    click.echo(f"Errors:               {click.style(str(errors), fg='red')}")
 
-    if stats["unregistered"] > 0 or stats["errors"] > 0:
+    if unregistered > 0 or errors > 0:
         click.echo("\n" + click.style(
-            "\u26a0\ufe0f  Discrepancies found. Review or re-registration needed.",
+            "\u26a0\ufe0f  Discrepancies found among new files.",
             fg="yellow", bold=True,
         ))
         sys.exit(1)

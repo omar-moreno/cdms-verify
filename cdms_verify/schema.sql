@@ -1,31 +1,19 @@
--- Schema for the CDMS verification results database.
--- Applied idempotently by cdms_verify.database.init_db().
-
-CREATE TABLE IF NOT EXISTS verification_runs (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_timestamp TEXT    NOT NULL,
-    local_dir     TEXT    NOT NULL,
-    catalog_path  TEXT    NOT NULL,
-    site          TEXT    NOT NULL,
-    total         INTEGER NOT NULL,
-    registered    INTEGER NOT NULL,
-    unregistered  INTEGER NOT NULL,
-    errors        INTEGER NOT NULL,
-    changed       INTEGER NOT NULL DEFAULT 0
-);
+-- Single-table schema for CDMS verification results.
+-- Each file is recorded exactly once (enforced by UNIQUE(file_path)); the CLI
+-- skips files already present. Run-level counts are derived on demand rather
+-- than stored, so there is no separate runs table.
 
 CREATE TABLE IF NOT EXISTS verification_results (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id       INTEGER NOT NULL,
-    file_path    TEXT    NOT NULL,
-    catalog_path TEXT    NOT NULL,
-    status       TEXT    NOT NULL,
-    checksum     TEXT,
-    size        INTEGER,
-    mtime       REAL,
-    FOREIGN KEY (run_id) REFERENCES verification_runs (id) ON DELETE CASCADE
+    id             INTEGER  PRIMARY KEY AUTOINCREMENT,
+    file_path      TEXT     NOT NULL UNIQUE, -- absolute local path; recorded once
+    catalog_path   TEXT     NOT NULL,        -- derived CDMS catalog path
+    status         TEXT     NOT NULL,        -- VERIFIED | UNREGISTERED | ERROR
+    checksum       TEXT,                     -- SHA256 hex, or error sentinel
+    size           INTEGER,                  -- bytes at scan time
+    mtime          REAL,                     -- POSIX mtime (epoch seconds)
+    site           TEXT     NOT NULL,        -- catalog site queried when found
+    scan_timestamp TEXT     NOT NULL         -- when this record was recorded
 );
 
-CREATE INDEX IF NOT EXISTS idx_results_run    ON verification_results (run_id);
-CREATE INDEX IF NOT EXISTS idx_results_status ON verification_results (status);
-CREATE INDEX IF NOT EXISTS idx_results_path   ON verification_results (file_path);
+CREATE INDEX IF NOT EXISTS idx_results_status    ON verification_results (status);
+CREATE INDEX IF NOT EXISTS idx_results_catalog   ON verification_results (catalog_path);
