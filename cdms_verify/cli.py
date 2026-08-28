@@ -215,7 +215,7 @@ def verify_catalog_registration(
     click.echo("\n" + "=" * 60)
     click.echo(click.style("VERIFICATION SUMMARY (new files this run)", fg="cyan", bold=True))
     click.echo("=" * 60)
-    click.echo(f"New Files Processed:  {len(results)}")
+    click.echo(f"New Files Processed:  {processed}")
     click.echo(f"Correctly Registered: {click.style(str(registered), fg='green')}")
     click.echo(f"Unregistered:         {click.style(str(unregistered), fg='red')}")
     click.echo(f"Errors:               {click.style(str(errors), fg='red')}")
