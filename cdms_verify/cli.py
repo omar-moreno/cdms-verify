@@ -184,7 +184,7 @@ def verify_catalog_registration(
                 "file_path": local_file,
                 "catalog_path": expected,
                 "status": "",
-                "checksum": "",
+                "checksum": checksum,
                 "size": fstat.size,
                 "mtime": fstat.mtime,
             }
