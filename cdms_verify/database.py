@@ -74,10 +74,7 @@ def get_db(db_path: Union[str, Path]) -> Generator[sqlite3.Connection, None, Non
     sqlite3.Connection
         An open connection whose ``row_factory`` is set to
         :class:`sqlite3.Row` for dict-like row access.
-            INSERT OR IGNORE INTO verification_results
-                (file_path, catalog_path, status, checksum,
-                 size, mtime, site, scan_timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+
     Raises
     ------
     Exception
