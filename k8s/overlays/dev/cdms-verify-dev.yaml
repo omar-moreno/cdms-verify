@@ -11,19 +11,14 @@ spec:
         imagePullPolicy: Always
         args:
           - "--local-dir"
-          - "/sdf/data/supercdms/data/CDMS/SNOLAB/R6"
+          - "/sdf/data/supercdms/data/CDMS/SNOLAB/R7/Raw"
           - "--db-path"
           - "/opt/db/verification.db"
-          - "--output-dir"
-          - "/opt/reports"
           - "--verbose"
         volumeMounts:
           - name: db-path
             mountPath: /opt/db
             subPath: workarea/software/cdms-verify/db
-          - name: reports-path
-            mountPath: /opt/reports
-            subPath: workarea/software/cdms-verify/reports
           - name: sdf-data
             mountPath: /sdf/data/supercdms/data
             subPath: data
@@ -31,9 +26,6 @@ spec:
         - name: db-path
           persistentVolumeClaim:
             claimName: sdf-data-supercdms-db-rw
-        - name: reports-path
-          persistentVolumeClaim:
-            claimName: sdf-data-supercdms-reports-rw
         - name: sdf-data
           persistentVolumeClaim:
             claimName: sdf-data-supercdms-ro
