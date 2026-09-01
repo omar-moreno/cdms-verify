@@ -1,4 +1,5 @@
 site_name: CDMS Verify
+site_url: https://omar-moreno.github.io/cdms-verify
 site_description: Verify local files against the CDMS Data Catalog and persist results.
 repo_url: https://github.com/your-org/cdms-verify
 edit_uri: edit/main/docs/
