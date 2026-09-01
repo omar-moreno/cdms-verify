@@ -156,10 +156,6 @@ def stat_file(file_path: Union[str, Path]) -> FileStat:
         cannot be stat-ed (e.g. it was removed between scanning and stat-ing,
         or is unreadable).
 
-    See Also
-    --------
-    calculate_sha256 : Compute a content checksum for the same file.
-
     Notes
     -----
     ``mtime`` is taken from :attr:`os.stat_result.st_mtime` and therefore uses
