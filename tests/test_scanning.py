@@ -19,10 +19,10 @@ from cdms_verify.scanning import (
     stat_file,
 )
 
-
 # --------------------------------------------------------------------------- #
 # calculate_sha256
 # --------------------------------------------------------------------------- #
+
 
 def test_calculate_sha256_known_value(tmp_path):
     """The digest of b'hello' matches the well-known SHA256 value."""
@@ -67,6 +67,7 @@ def test_calculate_sha256_directory_returns_sentinel(tmp_path):
 # stat_file
 # --------------------------------------------------------------------------- #
 
+
 def test_stat_file_returns_size_and_mtime(tmp_path):
     f = tmp_path / "a.dat"
     f.write_bytes(b"12345")
@@ -90,6 +91,7 @@ def test_stat_file_accepts_str_path(tmp_path):
 # --------------------------------------------------------------------------- #
 # scan_local_files
 # --------------------------------------------------------------------------- #
+
 
 def test_scan_local_files_nonrecursive_top_level_only(tmp_path):
     (tmp_path / "a.txt").write_text("a")
@@ -145,6 +147,7 @@ def test_scan_local_files_on_file_raises_notadirectory(tmp_path):
 def test_scan_local_files_is_generator(tmp_path):
     """scan_local_files should be lazy (a generator), not return a list."""
     import types
+
     (tmp_path / "a.txt").write_text("a")
     result = scan_local_files(tmp_path, recursive=False)
     assert isinstance(result, types.GeneratorType)

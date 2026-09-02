@@ -16,7 +16,6 @@ extract_catalog_path
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 
 def normalize_path(path: str) -> str:
@@ -74,7 +73,7 @@ def normalize_path(path: str) -> str:
     return "/" + "/".join(parts)
 
 
-def extract_catalog_path(local_path: Path) -> Optional[str]:
+def extract_catalog_path(local_path: Path) -> str | None:
     """Derive a catalog path from a local filesystem path.
 
     Locates the ``CDMS`` component within the path and reconstructs the

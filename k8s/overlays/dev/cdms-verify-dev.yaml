@@ -1,8 +1,8 @@
 apiVersion: apps/v1
 kind: Deployment
-metadata: 
+metadata:
   name: cdms-verify
-spec: 
+spec:
   template:
     spec:
       containers:

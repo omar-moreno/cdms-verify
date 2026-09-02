@@ -16,12 +16,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from cdms_verify.database import get_db, get_summary, init_db
-
+from cdms_verify.database import get_db, get_summary
 
 # --------------------------------------------------------------------------- #
 # Fake CDMSDataCatalog injected before importing the CLI
 # --------------------------------------------------------------------------- #
+
 
 class _FakeDataset:
     """Minimal dataset object exposing the .path attribute the CLI reads."""
@@ -78,12 +78,14 @@ def cli():
     # binds to our fake.
     sys.modules.pop("cdms_verify.cli", None)
     from cdms_verify.cli import verify_catalog_registration
+
     return verify_catalog_registration
 
 
 # --------------------------------------------------------------------------- #
 # Test data setup helper
 # --------------------------------------------------------------------------- #
+
 
 def _make_tree(base: Path) -> Path:
     """Create a CDMS-rooted data tree and return the directory to scan."""
@@ -96,9 +98,12 @@ def _make_tree(base: Path) -> Path:
 
 def _invoke(cli, runner, scan_dir, db_path, extra=None):
     args = [
-        "--local-dir", str(scan_dir),
-        "--site", "SLAC",
-        "--db-path", str(db_path),
+        "--local-dir",
+        str(scan_dir),
+        "--site",
+        "SLAC",
+        "--db-path",
+        str(db_path),
     ]
     if extra:
         args.extend(extra)
@@ -108,6 +113,7 @@ def _invoke(cli, runner, scan_dir, db_path, extra=None):
 # --------------------------------------------------------------------------- #
 # Tests
 # --------------------------------------------------------------------------- #
+
 
 def test_all_unregistered_exits_1(cli, tmp_path):
     """With no registered paths, all files are UNREGISTERED -> exit 1."""
@@ -207,8 +213,10 @@ def test_new_file_added_between_runs_is_recorded(cli, tmp_path):
 def test_checksum_is_stored(cli, tmp_path):
     scan_dir = _make_tree(tmp_path)
     db = tmp_path / "verification.db"
-    _FakeClient.registered_paths = ["/CDMS/Raw/Run1/file1.dat",
-                                    "/CDMS/Raw/Run1/file2.dat"]
+    _FakeClient.registered_paths = [
+        "/CDMS/Raw/Run1/file1.dat",
+        "/CDMS/Raw/Run1/file2.dat",
+    ]
 
     runner = CliRunner()
     _invoke(cli, runner, scan_dir, db)
@@ -225,8 +233,10 @@ def test_checksum_is_stored(cli, tmp_path):
 def test_size_and_mtime_stored(cli, tmp_path):
     scan_dir = _make_tree(tmp_path)
     db = tmp_path / "verification.db"
-    _FakeClient.registered_paths = ["/CDMS/Raw/Run1/file1.dat",
-                                    "/CDMS/Raw/Run1/file2.dat"]
+    _FakeClient.registered_paths = [
+        "/CDMS/Raw/Run1/file1.dat",
+        "/CDMS/Raw/Run1/file2.dat",
+    ]
 
     runner = CliRunner()
     _invoke(cli, runner, scan_dir, db)
@@ -278,8 +288,10 @@ def test_verbose_flag_runs(cli, tmp_path):
     """The --verbose flag should not change outcome, only output."""
     scan_dir = _make_tree(tmp_path)
     db = tmp_path / "verification.db"
-    _FakeClient.registered_paths = ["/CDMS/Raw/Run1/file1.dat",
-                                    "/CDMS/Raw/Run1/file2.dat"]
+    _FakeClient.registered_paths = [
+        "/CDMS/Raw/Run1/file1.dat",
+        "/CDMS/Raw/Run1/file2.dat",
+    ]
 
     runner = CliRunner()
     result = _invoke(cli, runner, scan_dir, db, extra=["--verbose"])
@@ -291,9 +303,14 @@ def test_missing_local_dir_is_usage_error(cli, tmp_path):
     """A non-existent --local-dir is rejected by Click's path validation."""
     db = tmp_path / "verification.db"
     runner = CliRunner()
-    result = runner.invoke(cli, [
-        "--local-dir", str(tmp_path / "does-not-exist"),
-        "--db-path", str(db),
-    ])
+    result = runner.invoke(
+        cli,
+        [
+            "--local-dir",
+            str(tmp_path / "does-not-exist"),
+            "--db-path",
+            str(db),
+        ],
+    )
     # Click exits 2 for usage/validation errors.
     assert result.exit_code == 2

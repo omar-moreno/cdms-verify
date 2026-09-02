@@ -15,50 +15,61 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import click
-
-from cdms_verify.catalog import get_datasets
-from cdms_verify.database import (
-        get_db,
-        get_known_file_paths,
-        init_db, 
-        insert_result,
-)
-from cdms_verify.paths import extract_catalog_path, normalize_path
-from cdms_verify.scanning import ( 
-    CHECKSUM_ERROR, 
-    calculate_sha256, 
-    scan_local_files,
-    stat_file,
-)
 
 # Imported lazily-friendly: the concrete client used at runtime.
 from CDMSDataCatalog import CDMSDataCatalog
 
+from cdms_verify.catalog import get_datasets
+from cdms_verify.database import (
+    get_db,
+    get_known_file_paths,
+    init_db,
+    insert_result,
+)
+from cdms_verify.paths import extract_catalog_path, normalize_path
+from cdms_verify.scanning import (
+    CHECKSUM_ERROR,
+    calculate_sha256,
+    scan_local_files,
+    stat_file,
+)
+
 
 @click.command()
 @click.option(
-    "--local-dir", "-d", required=True,
+    "--local-dir",
+    "-d",
+    required=True,
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
     help="Local directory containing the files to verify.",
 )
 @click.option(
-    "--site", "-s", default="SLAC", type=str,
+    "--site",
+    "-s",
+    default="SLAC",
+    type=str,
     help="Target site to verify against (default: SLAC).",
 )
 @click.option(
-    "--recursive/--no-recursive", "-r/-nr", default=True,
+    "--recursive/--no-recursive",
+    "-r/-nr",
+    default=True,
     help="Scan subdirectories recursively (default: True).",
 )
 @click.option(
-    "--db-path", default="verification.db",
+    "--db-path",
+    default="verification.db",
     type=click.Path(dir_okay=False),
     help="SQLite database file for storing results (default: verification.db).",
 )
 @click.option(
-    "--verbose", "-v", is_flag=True, default=False,
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
     help="Enable verbose output for debugging.",
 )
 def verify_catalog_registration(
@@ -136,7 +147,9 @@ def verify_catalog_registration(
         sys.exit(1)
 
     if not local_files:
-        click.echo(click.style("No files found in the specified directory.", fg="yellow"))
+        click.echo(
+            click.style("No files found in the specified directory.", fg="yellow")
+        )
         sys.exit(0)
 
     click.echo(f"Found {len(local_files)} local files. Checking registration...\n")
@@ -149,11 +162,7 @@ def verify_catalog_registration(
     # already exists is skipped entirely on this run.
     known_paths = get_known_file_paths(db_path, local_files)
     if verbose:
-        click.echo(
-            f"{len(known_paths)} of {len(local_files)} files already known."
-        )
-
-    results: List[Dict[str, Any]] = []
+        click.echo(f"{len(known_paths)} of {len(local_files)} files already known.")
 
     registered = 0
     unregistered = 0
@@ -168,9 +177,11 @@ def verify_catalog_registration(
             # Skip any file that already exists in the database.
             if local_file in known_paths:
                 if verbose:
-                    click.echo(click.style(
-                        f"  \u23ed  SKIP (already in DB): {local_file}", fg="blue"
-                    ))
+                    click.echo(
+                        click.style(
+                            f"  \u23ed  SKIP (already in DB): {local_file}", fg="blue"
+                        )
+                    )
                 continue
 
             expected = normalize_path(extract_catalog_path(Path(local_file)))
@@ -180,7 +191,7 @@ def verify_catalog_registration(
             fstat = stat_file(local_file)
             checksum = calculate_sha256(local_file)
 
-            result_row: Dict[str, Any] = {
+            result_row: dict[str, Any] = {
                 "file_path": local_file,
                 "catalog_path": expected,
                 "status": "",
@@ -198,7 +209,9 @@ def verify_catalog_registration(
                 registered += 1
                 dataset_paths.remove(expected)
                 if verbose:
-                    click.echo(click.style(f"\u2705 VERIFIED: {local_file}", fg="green"))
+                    click.echo(
+                        click.style(f"\u2705 VERIFIED: {local_file}", fg="green")
+                    )
             else:
                 result_row["status"] = "UNREGISTERED"
                 unregistered += 1
@@ -208,12 +221,16 @@ def verify_catalog_registration(
             if insert_result(conn, result_row, site):
                 inserted += 1
             processed += 1
-   
-    click.echo(f"\nProcessed {processed} new file(s); inserted {inserted} row(s) into: {db_path}")
+
+    click.echo(
+        f"\nProcessed {processed} new file(s); inserted {inserted} row(s) into: {db_path}"
+    )
 
     # Console summary (counts are for THIS run's newly processed files).
     click.echo("\n" + "=" * 60)
-    click.echo(click.style("VERIFICATION SUMMARY (new files this run)", fg="cyan", bold=True))
+    click.echo(
+        click.style("VERIFICATION SUMMARY (new files this run)", fg="cyan", bold=True)
+    )
     click.echo("=" * 60)
     click.echo(f"New Files Processed:  {processed}")
     click.echo(f"Correctly Registered: {click.style(str(registered), fg='green')}")
@@ -221,16 +238,26 @@ def verify_catalog_registration(
     click.echo(f"Errors:               {click.style(str(errors), fg='red')}")
 
     if unregistered > 0 or errors > 0:
-        click.echo("\n" + click.style(
-            "\u26a0\ufe0f  Discrepancies found among new files.",
-            fg="yellow", bold=True,
-        ))
+        click.echo(
+            "\n"
+            + click.style(
+                "\u26a0\ufe0f  Discrepancies found among new files.",
+                fg="yellow",
+                bold=True,
+            )
+        )
         sys.exit(1)
 
-    click.echo("\n" + click.style(
-        "\u2705 All new local files are correctly registered.", fg="green", bold=True,
-    ))
+    click.echo(
+        "\n"
+        + click.style(
+            "\u2705 All new local files are correctly registered.",
+            fg="green",
+            bold=True,
+        )
+    )
     sys.exit(0)
+
 
 if __name__ == "__main__":
     verify_catalog_registration()

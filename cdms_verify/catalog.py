@@ -14,7 +14,7 @@ get_datasets
 from __future__ import annotations
 
 import logging
-from typing import Any, List
+from typing import Any
 
 # Optional third-party dependencies of the underlying catalog client. They
 # are imported defensively so that this module can be imported (and its
@@ -33,10 +33,10 @@ logger = logging.getLogger(__name__)
 
 
 def get_datasets(
-    dc: "CDMSDataCatalog",  # noqa: F821 - forward ref to external type
+    dc: CDMSDataCatalog,  # noqa: F821 - forward ref to external type
     path: str = "/CDMS",
     site: str = "All",
-) -> List[Any]:
+) -> list[Any]:
     """Retrieve datasets registered under a catalog path.
 
     Performs two searches against the catalog and merges the results:
@@ -83,13 +83,9 @@ def get_datasets(
     except Exception as err:  # noqa: BLE001 - see notes on specific types
         # We catch broadly because the specific exception classes live in
         # optional dependencies that may not be importable in all envs.
-        if datacat is not None and isinstance(
-            err, datacat.error.DcClientException
-        ):
+        if datacat is not None and isinstance(err, datacat.error.DcClientException):
             logger.error("DcClientException %s: %s", err, path)
-        elif requests is not None and isinstance(
-            err, requests.exceptions.HTTPError
-        ):
+        elif requests is not None and isinstance(err, requests.exceptions.HTTPError):
             logger.error("HTTPError %s: %s", err, path)
         else:
             logger.error("Unexpected error querying %s: %s", path, err)

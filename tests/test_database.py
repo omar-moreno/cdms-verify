@@ -23,8 +23,14 @@ from cdms_verify.database import (
 # Helpers / fixtures
 # --------------------------------------------------------------------------- #
 
-def _row(path: str, status: str = "VERIFIED", checksum: str = "abc",
-         size: int = 100, mtime: float = 1700000000.0) -> dict:
+
+def _row(
+    path: str,
+    status: str = "VERIFIED",
+    checksum: str = "abc",
+    size: int = 100,
+    mtime: float = 1700000000.0,
+) -> dict:
     """Build a minimal, valid result row for tests."""
     return {
         "file_path": path,
@@ -56,6 +62,7 @@ def _count(db_path) -> int:
 # init_db
 # --------------------------------------------------------------------------- #
 
+
 def test_init_db_is_idempotent(tmp_path):
     """Calling init_db repeatedly does not error or drop data."""
     path = tmp_path / "test.db"
@@ -74,18 +81,27 @@ def test_init_db_is_idempotent(tmp_path):
 def test_init_db_creates_expected_columns(db):
     """The results table exposes all expected columns."""
     with get_db(db) as conn:
-        cols = {row["name"] for row in conn.execute(
-            "PRAGMA table_info(verification_results)"
-        )}
+        cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(verification_results)")
+        }
     assert cols == {
-        "id", "file_path", "catalog_path", "status", "checksum",
-        "size", "mtime", "site", "scan_timestamp",
+        "id",
+        "file_path",
+        "catalog_path",
+        "status",
+        "checksum",
+        "size",
+        "mtime",
+        "site",
+        "scan_timestamp",
     }
 
 
 # --------------------------------------------------------------------------- #
 # save_results (bulk)
 # --------------------------------------------------------------------------- #
+
 
 def test_save_results_inserts_all_new(db):
     inserted = save_results(db, [_row("/a"), _row("/b")], site="SLAC")
@@ -121,8 +137,12 @@ def test_save_results_ignores_duplicates(db):
     """UNIQUE(file_path) makes re-inserting a known path a no-op."""
     assert save_results(db, [_row("/a")], site="SLAC") == 1
     # Same path again, even with different content, is ignored.
-    assert save_results(db, [_row("/a", status="UNREGISTERED", checksum="zzz")],
-                        site="SLAC") == 0
+    assert (
+        save_results(
+            db, [_row("/a", status="UNREGISTERED", checksum="zzz")], site="SLAC"
+        )
+        == 0
+    )
     assert _count(db) == 1
     # The original row is unchanged (INSERT OR IGNORE, not REPLACE).
     with get_db(db) as conn:
@@ -136,13 +156,14 @@ def test_save_results_ignores_duplicates(db):
 def test_save_results_mixed_new_and_duplicate(db):
     save_results(db, [_row("/a")], site="SLAC")
     inserted = save_results(db, [_row("/a"), _row("/b"), _row("/c")], site="SLAC")
-    assert inserted == 2          # only /b and /c are new
+    assert inserted == 2  # only /b and /c are new
     assert _count(db) == 3
 
 
 # --------------------------------------------------------------------------- #
 # insert_result (incremental)
 # --------------------------------------------------------------------------- #
+
 
 def test_insert_result_inserts_and_commits(db):
     """insert_result persists a row immediately and reports insertion."""
@@ -179,6 +200,7 @@ def test_insert_result_handles_none_size_and_mtime(db):
 
 def test_partial_progress_survives_exception(db):
     """Rows committed before an error remain in the database."""
+
     def fail_after_two():
         with get_db(db) as conn:
             insert_result(conn, _row("/a"), "SLAC")
@@ -199,6 +221,7 @@ def test_partial_progress_survives_exception(db):
 # --------------------------------------------------------------------------- #
 # get_known_file_paths
 # --------------------------------------------------------------------------- #
+
 
 def test_get_known_file_paths_returns_only_known(db):
     save_results(db, [_row("/a")], site="SLAC")
@@ -225,9 +248,13 @@ def test_get_known_file_paths_none_known(db):
 # get_summary
 # --------------------------------------------------------------------------- #
 
+
 def test_get_summary_empty_db(db):
     assert get_summary(db) == {
-        "total": 0, "registered": 0, "unregistered": 0, "errors": 0,
+        "total": 0,
+        "registered": 0,
+        "unregistered": 0,
+        "errors": 0,
     }
 
 
@@ -243,7 +270,10 @@ def test_get_summary_counts_by_status(db):
         site="SLAC",
     )
     assert get_summary(db) == {
-        "total": 4, "registered": 2, "unregistered": 1, "errors": 1,
+        "total": 4,
+        "registered": 2,
+        "unregistered": 1,
+        "errors": 1,
     }
 
 
@@ -252,5 +282,8 @@ def test_get_summary_reflects_incremental_inserts(db):
         insert_result(conn, _row("/a", status="VERIFIED"), "SLAC")
         insert_result(conn, _row("/b", status="ERROR"), "SLAC")
     assert get_summary(db) == {
-        "total": 2, "registered": 1, "unregistered": 0, "errors": 1,
+        "total": 2,
+        "registered": 1,
+        "unregistered": 0,
+        "errors": 1,
     }

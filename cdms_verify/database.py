@@ -25,11 +25,12 @@ insert_result
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from importlib import resources
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Union
+from typing import Any
 
 #: Location of the packaged schema, loaded via importlib.resources.
 _SCHEMA_RESOURCE = "schema.sql"
@@ -56,7 +57,7 @@ def _load_schema() -> str:
 
 
 @contextmanager
-def get_db(db_path: Union[str, Path]) -> Generator[sqlite3.Connection, None, None]:
+def get_db(db_path: str | Path) -> Generator[sqlite3.Connection, None, None]:
     """Yield a configured SQLite connection with transactional semantics.
 
     The connection is configured with WAL journaling and enforced foreign
@@ -100,7 +101,7 @@ def get_db(db_path: Union[str, Path]) -> Generator[sqlite3.Connection, None, Non
         conn.close()
 
 
-def init_db(db_path: Union[str, Path]) -> None:
+def init_db(db_path: str | Path) -> None:
     """Create the database schema if it does not already exist.
 
     Parameters
@@ -123,8 +124,8 @@ def init_db(db_path: Union[str, Path]) -> None:
 
 
 def save_results(
-    db_path: Union[str, Path],
-    results: List[Dict[str, Any]],
+    db_path: str | Path,
+    results: list[dict[str, Any]],
     site: str,
 ) -> int:
     """Insert new file results, ignoring any whose file_path already exists.
@@ -161,7 +162,7 @@ def save_results(
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     with get_db(db_path) as conn:
-        cursor =conn.executemany(
+        cursor = conn.executemany(
             """
             INSERT OR IGNORE INTO verification_results
                 (file_path, catalog_path, status, checksum,
@@ -184,9 +185,10 @@ def save_results(
         )
         return cursor.rowcount
 
+
 def get_known_file_paths(
-    db_path: Union[str, Path],
-    file_paths: List[str],
+    db_path: str | Path,
+    file_paths: list[str],
 ) -> set:
     """Return the subset of file paths already recorded in the database.
 
@@ -213,7 +215,9 @@ def get_known_file_paths(
 
     Examples
     --------
-    >>> get_known_file_paths("verification.db", ["/data/a.dat", "/data/b.dat"])  # doctest: +SKIP
+    >>> get_known_file_paths(
+    ...     "verification.db", ["/data/a.dat", "/data/b.dat"]
+    ... )  # doctest: +SKIP
     {'/data/a.dat'}
     """
     if not file_paths:
@@ -228,7 +232,8 @@ def get_known_file_paths(
         rows = conn.execute(query, tuple(file_paths)).fetchall()
     return {row["file_path"] for row in rows}
 
-def get_summary(db_path: Union[str, Path]) -> Dict[str, int]:
+
+def get_summary(db_path: str | Path) -> dict[str, int]:
     """Return aggregate status counts across all recorded files.
 
     Parameters
@@ -264,9 +269,10 @@ def get_summary(db_path: Union[str, Path]) -> Dict[str, int]:
         "errors": row["errors"] or 0,
     }
 
+
 def insert_result(
     conn: sqlite3.Connection,
-    result: Dict[str, Any],
+    result: dict[str, Any],
     site: str,
 ) -> bool:
     """Insert one file result on an existing connection and commit it.

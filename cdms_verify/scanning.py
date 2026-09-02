@@ -17,16 +17,18 @@ stat_file
 
 from __future__ import annotations
 
-import os
 import hashlib
+import os
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator, Union, NamedTuple, Optional
+from typing import NamedTuple
 
 # Read files in 1 MiB chunks to bound memory usage for large files.
 _CHUNK_SIZE = 1024 * 1024
 
 #: Sentinel returned by :func:`calculate_sha256` when hashing fails.
 CHECKSUM_ERROR = "ERROR_CALCULATING"
+
 
 class FileStat(NamedTuple):
     """Lightweight container for a file's size and modification time.
@@ -40,11 +42,11 @@ class FileStat(NamedTuple):
         part), or ``None`` if the file could not be stat-ed.
     """
 
-    size: Optional[int]
-    mtime: Optional[float]
+    size: int | None
+    mtime: float | None
 
 
-def calculate_sha256(file_path: Union[str, Path]) -> str:
+def calculate_sha256(file_path: str | Path) -> str:
     """Compute the SHA256 checksum of a file.
 
     The file is read incrementally in fixed-size chunks so that arbitrarily
@@ -141,7 +143,8 @@ def scan_local_files(
             if item.is_file():
                 yield str(item.absolute())
 
-def stat_file(file_path: Union[str, Path]) -> FileStat:
+
+def stat_file(file_path: str | Path) -> FileStat:
     """Return the size and modification time of a file.
 
     Parameters
