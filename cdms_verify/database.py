@@ -12,7 +12,7 @@ get_db
     Context manager yielding a configured SQLite connection.
 init_db
     Create the schema if it does not already exist.
-save_results_to_db
+save_results
     Insert new file results (idempotent per file_path).
 get_known_file_paths
     Return the subset of given paths already recorded.
@@ -122,7 +122,7 @@ def init_db(db_path: Union[str, Path]) -> None:
         conn.executescript(_load_schema())
 
 
-def save_results_to_db(
+def save_results(
     db_path: Union[str, Path],
     results: List[Dict[str, Any]],
     site: str,
@@ -151,7 +151,7 @@ def save_results_to_db(
 
     Examples
     --------
-    >>> save_results_to_db("verification.db", results, "SLAC")  # doctest: +SKIP
+    >>> save_results("verification.db", results, "SLAC")  # doctest: +SKIP
     3
 
     """

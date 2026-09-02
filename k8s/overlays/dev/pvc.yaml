@@ -14,19 +14,6 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: sdf-data-supercdms-reports-rw
-spec: 
-  storageClassName: sdf-data-supercdms
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 1Gi
-
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
   name: sdf-data-supercdms-ro
 spec: 
   storageClassName: sdf-data-supercdms
