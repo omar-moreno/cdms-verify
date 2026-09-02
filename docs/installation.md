@@ -3,14 +3,14 @@
 ## From source
 
 ```bash
-git clone https://github.com/your-org/cdms-verify.git
+git clone https://github.com/omar-moreno/cdms-verify.git
 cd cdms-verify
 pip install -e .
 ```
 
 !!! tip "Use editable installs during development"
-Installing with -e makes Python import directly from your working tree,
-so source edits are picked up without reinstalling.
+    Installing with -e makes Python import directly from your working tree,
+    so source edits are picked up without reinstalling.
 
 ## With development and docs extras
 
@@ -29,7 +29,7 @@ pip install -e ".[dev,docs]"
 
 
 !!! note "About the CDMSDataCatalog dependency"
-The CDMSDataCatalog client and its transitive dependencies (datacat,
-requests) are only needed to run the CLI against a live catalog. The
-pure helper modules (paths, scanning, database) can be imported and
-tested without them.
+    The CDMSDataCatalog client and its transitive dependencies (datacat,
+    requests) are only needed to run the CLI against a live catalog. The
+    pure helper modules (paths, scanning, database) can be imported and
+    tested without them.

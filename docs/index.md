@@ -22,6 +22,6 @@ database. A separate read-only tool queries it (see
 - **Record-once semantics** — a `UNIQUE(file_path)` constraint guarantees each
   file is stored exactly once; re-runs skip known files.
 - **Incremental durability** — results are committed per file.
-- **Zero-config storage** — a single SQLite `.db` file, ideal for k8s CronJobs.
+- **Zero-config storage** — a single SQLite `.db` file, ideal for Kubernetes deployments.
 - **Derived summaries** — status counts are computed on demand, never stored,
   so they cannot drift.
