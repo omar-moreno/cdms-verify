@@ -1,0 +1,51 @@
+# Pre-commit hooks for CDMS Verify.
+# Install once with:  pre-commit install
+# Run manually with:  pre-commit run --all-files
+
+# Keep hook environments on a recent Python.
+default_language_version:
+  python: python3.14
+
+repos:
+  # ------------------------------------------------------------------ #
+  # General file hygiene
+  # ------------------------------------------------------------------ #
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: debug-statements        # catch stray breakpoint()/pdb
+
+  # ------------------------------------------------------------------ #
+  # Ruff: linting + formatting (replaces black, isort, flake8)
+  # ------------------------------------------------------------------ #
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      # Linter (with autofix).
+      - id: ruff
+        args: ["--fix"]
+      # Formatter.
+      - id: ruff-format
+
+  # ------------------------------------------------------------------ #
+  # Validate the schema.sql is still parseable (lightweight sanity)
+  # ------------------------------------------------------------------ #
+  - repo: local
+    hooks:
+      - id: check-schema-sql
+        name: check schema.sql parses
+        entry: python -c "import sqlite3, sys; sqlite3.connect(':memory:').executescript(open('cdms_verify/schema.sql').read())"
+        language: system
+        files: ^cdms_verify/schema\.sql$
+        pass_filenames: false
