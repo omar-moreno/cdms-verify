@@ -10,6 +10,8 @@ Functions
 ---------
 get_db
     Context manager yielding a configured SQLite connection.
+connect_readonly
+    Context manager yielding a read-only SQLite connection.
 init_db
     Create the schema if it does not already exist.
 save_results
@@ -20,6 +22,8 @@ get_summary
     Return aggregate status counts across all recorded files.
 insert_result
     Insert one file result on an existing connection and commit it.
+get_verification_by_catalog_path
+    Look up a file's verification record by catalog path (read-only).
 """
 
 from __future__ import annotations
@@ -333,3 +337,87 @@ def insert_result(
     # Commit immediately so this row survives a subsequent crash.
     conn.commit()
     return cursor.rowcount > 0
+
+
+@contextmanager
+def connect_readonly(
+    db_path: str | Path,
+) -> Generator[sqlite3.Connection, None, None]:
+    """Yield a read-only SQLite connection.
+
+    Opens the database with ``mode=ro`` so it can never be modified, making it
+    safe to run alongside the verification writer (WAL permits concurrent
+    reads). The connection is always closed on exit.
+
+    Parameters
+    ----------
+    db_path : str or pathlib.Path
+        Path to an existing SQLite database file.
+
+    Yields
+    ------
+    sqlite3.Connection
+        A read-only connection whose ``row_factory`` is :class:`sqlite3.Row`.
+
+    Notes
+    -----
+    Intended for consumers such as the cleanup tool that only read the
+    database. Open one connection and reuse it across many lookups rather than
+    opening one per call.
+
+    Examples
+    --------
+    >>> with connect_readonly("verification.db") as conn:  # doctest: +SKIP
+    ...     conn.execute("SELECT COUNT(*) FROM verification_results")
+    """
+    uri = f"file:{Path(db_path)}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def get_verification_by_catalog_path(
+    conn: sqlite3.Connection,
+    catalog_path: str,
+) -> dict[str, Any] | None:
+    """Look up a file's verification record by its catalog path.
+
+    Parameters
+    ----------
+    conn : sqlite3.Connection
+        An open (preferably read-only) connection, e.g. from
+        :func:`connect_readonly`. The caller owns the connection's lifetime;
+        pass one connection across many lookups rather than opening one per
+        call.
+    catalog_path : str
+        The normalized CDMS catalog path to look up (e.g.
+        ``/CDMS/SNOLAB/R1/Raw``).
+
+    Returns
+    -------
+    dict or None
+        A dict with ``status``, ``checksum``, ``size``, and ``mtime`` if a
+        record exists, otherwise ``None``.
+
+    Notes
+    -----
+    Matching is by ``catalog_path`` (machine-independent), not ``file_path``,
+    so this works across machines whose local path prefixes differ.
+
+    Examples
+    --------
+    >>> with connect_readonly("verification.db") as conn:  # doctest: +SKIP
+    ...     rec = get_verification_by_catalog_path(conn, "/CDMS/SNOLAB/R1/Raw")
+    """
+    row = conn.execute(
+        """
+        SELECT status, checksum, size, mtime
+        FROM verification_results
+        WHERE catalog_path = ?
+        """,
+        (catalog_path,),
+    ).fetchone()
+    return dict(row) if row is not None else None
