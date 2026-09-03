@@ -85,8 +85,9 @@ def cleanup(
     Raises
     ------
     SystemExit
-        Exits ``0`` on success (including dry-runs), or ``1`` if any file could
-        not be evaluated or deleted (a ``KEEP_LOCAL_ERROR`` occurred).
+        Exits ``0`` on success (including dry-runs), or ``1`` if any file
+        encountered a checksum mismatch or local error (a
+        ``KEEP_CHECKSUM_MISMATCH`` or ``KEEP_LOCAL_ERROR`` occurred).
     """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -118,8 +119,8 @@ def cleanup(
 
     counts = Counter(e.decision for e in evaluations)
 
-    # Per-file output for anything that was NOT a clean delete/keep-in-db,
-    # so operators see exactly why files were retained.
+    # Per-file output for deletions, checksum mismatches, and local errors,
+    # so operators see exactly why files were retained or deleted.
     for e in evaluations:
         if e.decision is Decision.DELETE:
             verb = "DELETED" if delete else "WOULD DELETE"
