@@ -28,6 +28,7 @@ dev = [
 
 [project.scripts]
 cdms-verify = "cdms_verify.cli:verify_catalog_registration"
+cdms-cleanup = "cdms_verify.cleanup_cli:cleanup"
 
 [tool.setuptools]
 packages = ["cdms_verify"]
