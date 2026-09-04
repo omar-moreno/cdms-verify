@@ -45,8 +45,9 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Usage: usage.md
-  - Deployment: deployment.md
+  - Cleanup: cleanup.md
   - Database Schema: database.md
+  - Deployment: deployment.md
   - Development: development.md
   - API Reference:
       - paths: api/paths.md
@@ -54,6 +55,7 @@ nav:
       - catalog: api/catalog.md
       - database: api/database.md
       - cli: api/cli.md
+      - cleanup: api/cleanup.md
 
 markdown_extensions:
   - admonition
@@ -66,5 +68,9 @@ markdown_extensions:
       anchor_linenums: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.details
