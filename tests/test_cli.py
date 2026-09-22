@@ -314,3 +314,47 @@ def test_missing_local_dir_is_usage_error(cli, tmp_path):
     )
     # Click exits 2 for usage/validation errors.
     assert result.exit_code == 2
+
+
+def test_unregistered_file_is_rechecked_and_can_become_verified(cli, tmp_path):
+    """An UNREGISTERED file becomes VERIFIED on a later run once registered."""
+    scan_dir = _make_tree(tmp_path)
+    db = tmp_path / "verification.db"
+    runner = CliRunner()
+
+    # Run 1: nothing registered -> both files UNREGISTERED.
+    _FakeClient.registered_paths = []
+    result1 = _invoke(cli, runner, scan_dir, db)
+    assert result1.exit_code == 1
+    assert get_summary(db)["unregistered"] == 2
+
+    # Run 2: files now registered in the catalog.
+    _FakeClient.registered_paths = [
+        "/CDMS/Raw/Run1/file1.dat",
+        "/CDMS/Raw/Run1/file2.dat",
+    ]
+    result2 = _invoke(cli, runner, scan_dir, db)
+    assert result2.exit_code == 0
+
+    summary = get_summary(db)
+    assert summary["registered"] == 2  # both transitioned
+    assert summary["unregistered"] == 0
+    assert summary["total"] == 2  # updated in place, not duplicated
+
+
+def test_verified_files_are_not_rechecked(cli, tmp_path):
+    """A VERIFIED file is skipped on subsequent runs."""
+    scan_dir = _make_tree(tmp_path)
+    db = tmp_path / "verification.db"
+    _FakeClient.registered_paths = [
+        "/CDMS/Raw/Run1/file1.dat",
+        "/CDMS/Raw/Run1/file2.dat",
+    ]
+    runner = CliRunner()
+
+    _invoke(cli, runner, scan_dir, db)  # run 1 -> verified
+    # Even if the catalog "loses" the files, verified rows are not re-checked.
+    _FakeClient.registered_paths = []
+    result = _invoke(cli, runner, scan_dir, db)  # run 2
+    assert result.exit_code == 0
+    assert get_summary(db)["registered"] == 2  # unchanged

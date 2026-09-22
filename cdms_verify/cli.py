@@ -25,9 +25,9 @@ from CDMSDataCatalog import CDMSDataCatalog
 from cdms_verify.catalog import get_datasets
 from cdms_verify.database import (
     get_db,
-    get_known_file_paths,
+    get_verified_file_paths,
     init_db,
-    insert_result,
+    upsert_result,
 )
 from cdms_verify.paths import extract_catalog_path, normalize_path
 from cdms_verify.scanning import (
@@ -108,13 +108,12 @@ def verify_catalog_registration(
 
     Notes
     -----
-    Results are persisted incrementally: each newly processed file is inserted
-    and committed to the database immediately, rather than in a single batch at
-    the end. If the process is interrupted mid-scan (crash, eviction, timeout),
-    every file completed before the interruption is already durably stored.
-    Files already present in the database are skipped. The size and mtime of
-    new files are persisted so an external tool can perform its own change
-    detection.
+    Only files already recorded as ``VERIFIED`` are skipped. Files previously
+    recorded as ``UNREGISTERED`` or ``ERROR`` are **re-checked** on each run —
+    a file that has since been registered in the catalog transitions to
+    ``VERIFIED``, and a previously-failed checksum is retried. Re-checked files
+    update their existing database row (an upsert keyed on ``file_path``); new
+    files are inserted. Each write is committed immediately for durability.
 
     """
     # Ensure the database schema exists before we read from or write to it.
@@ -158,24 +157,27 @@ def verify_catalog_registration(
     dataset_paths = [d.path for d in datasets]
     click.echo(f"Found {len(dataset_paths)} datasets registered in the catalog.")
 
-    # Fetch the set of files already recorded in the database. Any file that
-    # already exists is skipped entirely on this run.
-    known_paths = get_known_file_paths(db_path, local_files)
+    # Fetch the set of files already VERIFIED. Only those are skipped; any
+    # UNREGISTERED or ERROR files are re-checked in case their catalog status
+    # has changed since the last run.
+    verified_paths = get_verified_file_paths(db_path, local_files)
     if verbose:
-        click.echo(f"{len(known_paths)} of {len(local_files)} files already known.")
+        click.echo(
+            f"{len(verified_paths)} of {len(local_files)} files already "
+            f"VERIFIED; the rest will be (re-)checked.\n"
+        )
 
     registered = 0
     unregistered = 0
     errors = 0
-    inserted = 0
-    processed = 0
+    written = 0
 
     # Hold a single connection open for the whole scan and commit each row as
     # it is processed, so an interruption does not lose completed work.
     with get_db(db_path) as conn:
         for local_file in local_files:
-            # Skip any file that already exists in the database.
-            if local_file in known_paths:
+            # Skip only files already confirmed VERIFIED.
+            if local_file in verified_paths:
                 if verbose:
                     click.echo(
                         click.style(
@@ -217,14 +219,9 @@ def verify_catalog_registration(
                 unregistered += 1
                 click.echo(click.style(f"UNREGISTERED: {local_file}", fg="yellow"))
 
-            # Persist this row immediately (committed inside insert_result).
-            if insert_result(conn, result_row, site):
-                inserted += 1
-            processed += 1
-
-    click.echo(
-        f"\nProcessed {processed} new file(s); inserted {inserted} row(s) into: {db_path}"
-    )
+            # Insert new rows or update existing (re-checked) rows.
+            upsert_result(conn, result_row, site)
+            written += 1
 
     # Console summary (counts are for THIS run's newly processed files).
     click.echo("\n" + "=" * 60)
@@ -232,7 +229,7 @@ def verify_catalog_registration(
         click.style("VERIFICATION SUMMARY (new files this run)", fg="cyan", bold=True)
     )
     click.echo("=" * 60)
-    click.echo(f"New Files Processed:  {processed}")
+    click.echo(f"Wrote {written} row(s) (new or updated) to: {db_path}")
     click.echo(f"Correctly Registered: {click.style(str(registered), fg='green')}")
     click.echo(f"Unregistered:         {click.style(str(unregistered), fg='red')}")
     click.echo(f"Errors:               {click.style(str(errors), fg='red')}")

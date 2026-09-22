@@ -2,8 +2,8 @@
 
 Records each scanned file exactly once in a single ``verification_results``
 table. The ``UNIQUE(file_path)`` constraint enforces the "record once" policy
-at the database level, so re-inserting a known file is a no-op. Run-level
-summary counts are not stored; they are derived on demand via
+at the database level. Files may be re-checked and updated in place via an
+upsert. Run-level summary counts are not stored; they are derived on demand via
 :func:`get_summary`.
 
 Functions
@@ -14,14 +14,12 @@ connect_readonly
     Context manager yielding a read-only SQLite connection.
 init_db
     Create the schema if it does not already exist.
-save_results
-    Insert new file results (idempotent per file_path).
-get_known_file_paths
-    Return the subset of given paths already recorded.
+upsert_result
+    Insert or update a single file result, committing immediately.
+get_verified_file_paths
+    Return the subset of given paths already recorded as VERIFIED.
 get_summary
     Return aggregate status counts across all recorded files.
-insert_result
-    Insert one file result on an existing connection and commit it.
 get_verification_by_catalog_path
     Look up a file's verification record by catalog path (read-only).
 """
@@ -127,116 +125,6 @@ def init_db(db_path: str | Path) -> None:
         conn.executescript(_load_schema())
 
 
-def save_results(
-    db_path: str | Path,
-    results: list[dict[str, Any]],
-    site: str,
-) -> int:
-    """Insert new file results, ignoring any whose file_path already exists.
-
-    Uses ``INSERT OR IGNORE`` so the ``UNIQUE(file_path)`` constraint makes
-    re-insertion of a known file a silent no-op. This guarantees each file is
-    recorded exactly once even if the caller's skip logic is bypassed.
-
-    Parameters
-    ----------
-    db_path : str or pathlib.Path
-        Path to the SQLite database file. Must already be initialized.
-    results : list of dict
-        Per-file rows. Each dict must contain ``file_path``, ``catalog_path``,
-        ``status``, and ``checksum``, and may contain ``size`` (int or None)
-        and ``mtime`` (float or None).
-    site : str
-        The catalog site that was queried, stored on each new row.
-
-    Returns
-    -------
-    int
-        The number of rows actually inserted (excludes ignored duplicates).
-
-    Examples
-    --------
-    >>> save_results("verification.db", results, "SLAC")  # doctest: +SKIP
-    3
-
-    """
-    if not results:
-        return 0
-
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    with get_db(db_path) as conn:
-        cursor = conn.executemany(
-            """
-            INSERT OR IGNORE INTO verification_results
-                (file_path, catalog_path, status, checksum,
-                 size, mtime, site, scan_timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    r["file_path"],
-                    r["catalog_path"],
-                    r["status"],
-                    r["checksum"],
-                    r.get("size"),
-                    r.get("mtime"),
-                    site,
-                    timestamp,
-                )
-                for r in results
-            ],
-        )
-        return cursor.rowcount
-
-
-def get_known_file_paths(
-    db_path: str | Path,
-    file_paths: list[str],
-) -> set:
-    """Return the subset of file paths already recorded in the database.
-
-    A file "exists in the database" if it appears in any prior
-    ``verification_results`` row, regardless of that row's status.
-
-    Parameters
-    ----------
-    db_path : str or pathlib.Path
-        Path to the SQLite database file. Must already be initialized.
-    file_paths : list of str
-        The local file paths to check for prior existence.
-
-    Returns
-    -------
-    set of str
-        The subset of ``file_paths`` that already appear in the database.
-
-    Notes
-    -----
-    Existence is keyed on ``file_path`` alone. No checksum, size, or mtime
-    comparison is performed; a file that was recorded in any previous run is
-    considered known.
-
-    Examples
-    --------
-    >>> get_known_file_paths(
-    ...     "verification.db", ["/data/a.dat", "/data/b.dat"]
-    ... )  # doctest: +SKIP
-    {'/data/a.dat'}
-    """
-    if not file_paths:
-        return set()
-
-    placeholders = ",".join("?" for _ in file_paths)
-    query = (
-        f"SELECT file_path FROM verification_results "
-        f"WHERE file_path IN ({placeholders})"
-    )
-    with get_db(db_path) as conn:
-        rows = conn.execute(query, tuple(file_paths)).fetchall()
-    return {row["file_path"] for row in rows}
-
-
 def get_summary(db_path: str | Path) -> dict[str, int]:
     """Return aggregate status counts across all recorded files.
 
@@ -272,71 +160,6 @@ def get_summary(db_path: str | Path) -> dict[str, int]:
         "unregistered": row["unregistered"] or 0,
         "errors": row["errors"] or 0,
     }
-
-
-def insert_result(
-    conn: sqlite3.Connection,
-    result: dict[str, Any],
-    site: str,
-) -> bool:
-    """Insert one file result on an existing connection and commit it.
-
-    Uses ``INSERT OR IGNORE`` so a file whose ``file_path`` already exists is
-    silently skipped. The insert is committed immediately, making each row
-    durable the moment it is processed — so an interruption mid-scan does not
-    lose files already handled.
-
-    Parameters
-    ----------
-    conn : sqlite3.Connection
-        An open connection (typically obtained from :func:`get_db`).
-    result : dict
-        A single per-file row. Must contain ``file_path``, ``catalog_path``,
-        ``status``, and ``checksum``, and may contain ``size`` (int or None)
-        and ``mtime`` (float or None).
-    site : str
-        The catalog site that was queried, stored on the new row.
-
-    Returns
-    -------
-    bool
-        ``True`` if a row was inserted, ``False`` if it was ignored because
-        the ``file_path`` already existed.
-
-    Notes
-    -----
-    A ``scan_timestamp`` is generated per call, so incrementally-inserted rows
-    carry the time each file was actually recorded rather than a single
-    run-wide timestamp.
-
-    Examples
-    --------
-    >>> with get_db("verification.db") as conn:  # doctest: +SKIP
-    ...     insert_result(conn, row, "SLAC")
-    True
-    """
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor = conn.execute(
-        """
-        INSERT OR IGNORE INTO verification_results
-            (file_path, catalog_path, status, checksum,
-             size, mtime, site, scan_timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            result["file_path"],
-            result["catalog_path"],
-            result["status"],
-            result["checksum"],
-            result.get("size"),
-            result.get("mtime"),
-            site,
-            timestamp,
-        ),
-    )
-    # Commit immediately so this row survives a subsequent crash.
-    conn.commit()
-    return cursor.rowcount > 0
 
 
 @contextmanager
@@ -421,3 +244,100 @@ def get_verification_by_catalog_path(
         (catalog_path,),
     ).fetchone()
     return dict(row) if row is not None else None
+
+
+def get_verified_file_paths(
+    db_path: str | Path,
+    file_paths: list[str],
+) -> set:
+    """Return the subset of file paths already recorded as VERIFIED.
+
+    Only ``VERIFIED`` files are considered "done" and skippable. Files recorded
+    with any other status (``UNREGISTERED``, ``ERROR``) are intentionally
+    excluded so the caller re-checks them.
+
+    Parameters
+    ----------
+    db_path : str or pathlib.Path
+        Path to the SQLite database file. Must already be initialized.
+    file_paths : list of str
+        The local file paths to check.
+
+    Returns
+    -------
+    set of str
+        The subset of ``file_paths`` recorded with status ``VERIFIED``.
+
+    Examples
+    --------
+    >>> get_verified_file_paths("verification.db", ["/a", "/b"])  # doctest: +SKIP
+    {'/a'}
+    """
+    if not file_paths:
+        return set()
+
+    placeholders = ",".join("?" for _ in file_paths)
+    query = (
+        f"SELECT file_path FROM verification_results "
+        f"WHERE status = 'VERIFIED' AND file_path IN ({placeholders})"
+    )
+    with get_db(db_path) as conn:
+        rows = conn.execute(query, tuple(file_paths)).fetchall()
+    return {row["file_path"] for row in rows}
+
+
+def upsert_result(
+    conn: sqlite3.Connection,
+    result: dict[str, Any],
+    site: str,
+) -> None:
+    """Insert a file result, or update it if the file_path already exists.
+
+    Uses SQLite's ``ON CONFLICT(file_path) DO UPDATE`` so a re-checked file's
+    status, checksum, size, mtime, site, and scan timestamp are refreshed. The
+    change is committed immediately for per-file durability.
+
+    Parameters
+    ----------
+    conn : sqlite3.Connection
+        An open connection (typically from :func:`get_db`).
+    result : dict
+        A single per-file row. Must contain ``file_path``, ``catalog_path``,
+        ``status``, and ``checksum``, and may contain ``size`` and ``mtime``.
+    site : str
+        The catalog site that was queried, stored on the row.
+
+    Notes
+    -----
+    Unlike :func:`insert_result`, this overwrites an existing row. It is used
+    when re-checking non-terminal files (e.g. previously ``UNREGISTERED``) so a
+    newly-registered file transitions to ``VERIFIED``.
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """
+        INSERT INTO verification_results
+            (file_path, catalog_path, status, checksum,
+             size, mtime, site, scan_timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(file_path) DO UPDATE SET
+            catalog_path   = excluded.catalog_path,
+            status         = excluded.status,
+            checksum       = excluded.checksum,
+            size           = excluded.size,
+            mtime          = excluded.mtime,
+            site           = excluded.site,
+            scan_timestamp = excluded.scan_timestamp
+        """,
+        (
+            result["file_path"],
+            result["catalog_path"],
+            result["status"],
+            result["checksum"],
+            result.get("size"),
+            result.get("mtime"),
+            site,
+            timestamp,
+        ),
+    )
+    conn.commit()
