@@ -26,6 +26,41 @@ Any other outcome keeps the file. The possible per-file decisions are:
 | `KEEP_CHECKSUM_MISMATCH` | Local checksum ≠ stored checksum | ✅ kept |
 | `KEEP_LOCAL_ERROR` | File unreadable, no catalog path, or delete failed | ✅ kept |
 
+## Decision flow
+
+```mermaid
+flowchart TD
+    Start([File found in scan]) --> Derive{Can derive<br/>catalog path?}
+    Derive -->|no| E1["<span style='color:#000'>KEEP_LOCAL_ERROR</span>"]
+    Derive -->|yes| Lookup{Record in<br/>database?}
+
+    Lookup -->|no| E2["<span style='color:#000'>KEEP_NOT_IN_DB</span>"]
+    Lookup -->|yes| Status{status ==<br/>VERIFIED?}
+
+    Status -->|no| E3["<span style='color:#000'>KEEP_NOT_VERIFIED</span>"]
+    Status -->|yes| Hash{Local checksum<br/>computed OK?}
+
+    Hash -->|no| E4["<span style='color:#000'>KEEP_LOCAL_ERROR</span>"]
+    Hash -->|yes| Match{Local checksum ==<br/>stored checksum?}
+
+    Match -->|no| E5["<span style='color:#000'>KEEP_CHECKSUM_MISMATCH</span>"]
+    Match -->|yes| Delete["<span style='color:#000'>DELETE</span>"]
+
+    Delete --> Mode{--delete<br/>flag set?}
+    Mode -->|yes| Remove["<span style='color:#000'>🗑️ Remove file</span>"]
+    Mode -->|no| Report["<span style='color:#000'>Report as 'would delete'</span>"]
+
+    classDef del fill:#00ff9d,stroke:#00b371;
+    classDef keep fill:#ffcc00,stroke:#c79b00;
+    classDef err fill:#ff6b6b,stroke:#c74a4a;
+
+    class Delete,Remove,Report del;
+    class E2,E3 keep;
+    class E1,E4,E5 err;
+```
+Every path except the rightmost leads to the file being **kept**. Deletion
+happens only after all four checks pass *and* `--delete` is supplied.
+
 ## Cross-machine matching
 
 The cleanup runs on a different machine than the verifier, so local absolute
