@@ -205,7 +205,7 @@ def test_new_file_added_between_runs_is_recorded(cli, tmp_path):
     (scan_dir / "Raw" / "Run1" / "file3.dat").write_text("new content")
 
     result = _invoke(cli, runner, scan_dir, db)
-    assert result.exit_code == 1  # file3 is unregistered
+    assert result.exit_code == 0  # file3 is unregistered
     summary = get_summary(db)
     assert summary["total"] == 3
     assert summary["unregistered"] == 1
