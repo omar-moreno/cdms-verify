@@ -56,7 +56,7 @@ nav:
       - catalog: api/catalog.md
       - database: api/database.md
       - cli: api/cli.md
-      - cleanup: api/cli.md
+      - cleanup: api/cleanup.md
 
 markdown_extensions:
   - admonition
