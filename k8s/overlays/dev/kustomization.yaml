@@ -3,13 +3,15 @@ kind: Kustomization
 
 namespace: cdms-verify-dev
 
-commonLabels:
-  app: cdms-verify-dev
+labels:
+  - pairs:
+      app: cdms-verify-dev
+    includeSelectors: false
 
 resources:
-- ../../base
-- namespace.yaml
-- pvc.yaml
+  - ../../base
+  - namespace.yaml
+  - pvc.yaml
 
 patches:
-- path: cdms-verify-dev.yaml
+  - path: cdms-verify-dev.yaml
