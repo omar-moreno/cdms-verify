@@ -26,7 +26,7 @@ cdms_verify/
 ├── catalog.py     # catalog query wrapper
 ├── database.py    # single-table SQLite persistence
 ├── schema.sql     # database schema
-└── cli.py         # Click entry point (scan + re-check + upsert)
+├── cli.py         # Click entry point (scan + re-check + upsert)
 ├── cleanup.py     # cleanup decision logic
 └── cleanup_cli.py # cleanup entry point
 tests/
