@@ -102,9 +102,11 @@ def verify_catalog_registration(
     Raises
     ------
     SystemExit
-        Exits with status ``1`` on initialization failure, scanning errors, or
-        if any discrepancies (unregistered files or errors) are found. Exits
-        with status ``0`` when everything is verified or no files are found.
+        Exits ``0`` on a successful run, including when unregistered files were
+        found (they are recorded but are not treated as a failure). Exits ``1``
+        only on genuine operational failures — a failure to initialize the
+        catalog, a scanning error, or files whose checksum could not be
+        computed (``ERROR`` status).
 
     Notes
     -----
@@ -234,12 +236,27 @@ def verify_catalog_registration(
     click.echo(f"Unregistered:         {click.style(str(unregistered), fg='red')}")
     click.echo(f"Errors:               {click.style(str(errors), fg='red')}")
 
-    if unregistered > 0 or errors > 0:
+    # Exit non-zero only on genuine operational failures (checksum errors).
+    # Unregistered files are a normal, expected result — they are recorded in
+    # the database and reported, but do NOT fail the run.
+    if unregistered > 0:
         click.echo(
             "\n"
             + click.style(
-                "\u26a0\ufe0f  Discrepancies found among new files.",
+                f"\u2139\ufe0f  {unregistered} file(s) are not yet registered. "
+                f"Results recorded in the database.",
                 fg="yellow",
+                bold=True,
+            )
+        )
+
+    if errors > 0:
+        click.echo(
+            "\n"
+            + click.style(
+                f"\u26a0\ufe0f  {errors} file(s) could not be processed (checksum "
+                f"errors). See logs above.",
+                fg="red",
                 bold=True,
             )
         )
@@ -248,7 +265,7 @@ def verify_catalog_registration(
     click.echo(
         "\n"
         + click.style(
-            "\u2705 All new local files are correctly registered.",
+            "\u2705 Verification completed successfully",
             fg="green",
             bold=True,
         )
