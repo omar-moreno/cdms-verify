@@ -44,11 +44,15 @@ creating a duplicate. Each write is committed immediately for crash durability.
 
 | Code | Meaning |
 |:----:|---------|
-| `0` | ✅ All processed files verified (or nothing to do). |
-| `1` | ⚠️ Discrepancies found (unregistered files or errors). |
+| `0` | ✅ Ran successfully. Unregistered files are recorded but do **not** fail the run. |
+| `1` | ⚠️ A genuine failure — catalog init failed, a scan error, or files whose checksum could not be computed. |
 | `2` | ❌ Usage/validation error (e.g. missing `--local-dir`). |
 
-These map cleanly to Kubernetes Job success/failure semantics.
+!!! note "Unregistered files are not failures"
+    Because this tool runs unattended (e.g. as a CronJob), finding unregistered
+    files is treated as a normal result — they are stored in the database for
+    you to review via SQL or the web report — not as a job failure. Only
+    operational errors cause a non-zero exit.
 
 ## Querying results
 

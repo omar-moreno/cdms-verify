@@ -101,9 +101,9 @@ cdms-verify \
 
 | Code | Meaning |
 |:----:|---------|
-| `0` | ✅ All new files verified (or nothing new to do). |
-| `1` | ⚠️ Discrepancies found (unregistered files or errors). |
-| `2` | ❌ Usage error (e.g. missing `--local-dir`). |
+| `0` | ✅ Ran successfully (unregistered files are recorded, not failures). |
+| `1` | ⚠️ Operational failure (catalog init, scan error, or checksum errors). |
+| `2` | ❌ Usage error. |
 
 > [!TIP]
 > These map directly to Kubernetes Job success/failure semantics, so a failed
