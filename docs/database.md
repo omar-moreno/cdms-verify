@@ -24,6 +24,29 @@ underlying rows.
 | `site` | TEXT | Site storing the files being scanned. |
 | `scan_timestamp` | TEXT | When the row was recorded. |
 
+### Row lifecycle
+
+Each file has exactly **one** row, keyed by the unique `file_path`:
+
+- **First scan** inserts the row.
+- **Re-checks** (of non-`VERIFIED` files) update the same row via an
+  [upsert](api/database.md#cdms_verify.database.upsert_result)
+  (`INSERT ... ON CONFLICT(file_path) DO UPDATE`). A file transitions from
+  `UNREGISTERED` to `VERIFIED` in place — no duplicate rows are created.
+- **`scan_timestamp`** therefore reflects the *most recent* time the file was
+  checked, not just when it was first seen.
+
+### Design rationale
+
+- **No `verification_runs` table.** Summary counts (`total`, `registered`,
+  `unregistered`, `errors`) are pure aggregates, computed via
+  [`get_summary`](api/database.md#cdms_verify.database.get_summary).
+- **No `local_dir` column.** It is derivable from `file_path` and nothing
+  queries by it.
+- **`size` and `mtime` are stored** so an external tool can perform its own
+  change detection independently of this tool.
+
+
 !!! info "Change detection is external"
     This tool records `size` and `mtime` but does not act on changes. Detecting
     modified files is the job of the data crawler.

@@ -45,8 +45,10 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Usage: usage.md
-  - Deployment: deployment.md
+  - Cleanup: cleanup.md
+  - Web Report: web-report.md
   - Database Schema: database.md
+  - Deployment: deployment.md
   - Development: development.md
   - API Reference:
       - paths: api/paths.md
@@ -54,6 +56,7 @@ nav:
       - catalog: api/catalog.md
       - database: api/database.md
       - cli: api/cli.md
+      - cleanup: api/cli.md
 
 markdown_extensions:
   - admonition

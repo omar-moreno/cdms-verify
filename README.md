@@ -42,7 +42,7 @@ flowchart LR
 
 | | Feature | Description |
 |---|---------|-------------|
-| 🔁 | **Record-once semantics** | A `UNIQUE(file_path)` constraint guarantees each file is stored exactly once. Re-runs skip known files. |
+| 🔁 | **Re-check semantics** | `VERIFIED` files are skipped; `UNREGISTERED` and `ERROR` files are re-checked each run and updated in place. |
 | 💾 | **Incremental durability** | Every result is committed *per file* — an interrupted run never loses completed work. |
 | 📦 | **Zero-config storage** | A single SQLite `.db` file. No database server to deploy. |
 | 📊 | **Drift-free summaries** | Status counts are derived on demand, never stored. |
@@ -134,25 +134,26 @@ WHERE status = 'UNREGISTERED';
 flowchart TD
     Start([Start]) --> Scan[Scan local directory]
     Scan --> Loop{For each file}
-    Loop -->|already in DB| Skip[Skip]
-    Loop -->|new file| Stat[Stat: size + mtime]
+    Loop -->|already VERIFIED| Skip[Skip]
+    Loop -->|new / unregistered / error| Stat[Stat: size + mtime]
     Stat --> Hash[Compute SHA256]
     Hash --> Check{Registered<br/>in catalog?}
     Check -->|yes| Verified[status = VERIFIED]
     Check -->|no| Unreg[status = UNREGISTERED]
     Hash -->|hash failed| Err[status = ERROR]
-    Verified --> Commit[(Commit row)]
-    Unreg --> Commit
-    Err --> Commit
+    Verified --> Upsert[(Upsert row)]
+    Unreg --> Upsert
+    Err --> Upsert
     Commit --> Loop
     Skip --> Loop
     Loop -->|done| Summary([Print summary + exit])
 ```
 
 1. **Scan** the local directory for files.
-2. **Skip** any file already recorded in the database.
-3. For each *new* file: stat it, checksum it, and check registration.
-4. **Commit** the result immediately — durable per file.
+2. **Skip** files already recorded as `VERIFIED`.
+3. For every other file: stat it, checksum it, and check registration.
+4. **Upsert** the result immediately — new rows inserted, re-checked rows
+   updated in place, committed per file.
 
 ---
 
