@@ -82,9 +82,10 @@ def verify_catalog_registration(
     """Verify local files against the CDMS Data Catalog.
 
     Scans ``local_dir``, derives each file's expected catalog path, checks it
-    against datasets registered at ``site``, computes a SHA256 checksum (only
-    when one is not already stored from a prior run) and persists results to a
-    SQLite database.
+    against datasets registered at ``site``, computes a SHA256 checksum for
+    files that are newly recorded or re-checked from a prior
+    ``UNREGISTERED``/``ERROR`` result, and persists results to a SQLite
+    database.
 
     Parameters
     ----------
