@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cdms-verify
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: cdms-verify
+              image: omarmoreno/cdms-verify:0.1.0
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--local-dir"
+                - "/sdf/data/supercdms/data/CDMS/SNOLAB/R7"
+                - "--db-path"
+                - "/opt/db/verification.db"
+              volumeMounts:
+                - name: db-path
+                  mountPath: /opt/db
+                  subPath: workarea/software/cdms-verify-db/db
+                - name: sdf-data
+                  mountPath: /sdf/data/supercdms/data
+                  subPath: data
+          volumes:
+            - name: db-path
+              persistentVolumeClaim:
+                claimName: sdf-data-supercdms-db-rw
+            - name: sdf-data
+              persistentVolumeClaim:
+                claimName: sdf-data-supercdms-ro
