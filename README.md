@@ -144,7 +144,7 @@ flowchart TD
     Verified --> Upsert[(Upsert row)]
     Unreg --> Upsert
     Err --> Upsert
-    Commit --> Loop
+    Upsert --> Loop
     Skip --> Loop
     Loop -->|done| Summary([Print summary + exit])
 ```
