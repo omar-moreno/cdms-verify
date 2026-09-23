@@ -46,6 +46,7 @@ nav:
   - Installation: installation.md
   - Usage: usage.md
   - Cleanup: cleanup.md
+  - Web Report: web-report.md
   - Database Schema: database.md
   - Deployment: deployment.md
   - Development: development.md

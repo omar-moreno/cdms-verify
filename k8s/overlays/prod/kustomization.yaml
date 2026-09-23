@@ -1,11 +1,11 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: cdms-verify-dev
+namespace: cdms-verify-prod
 
 labels:
   - pairs:
-      app: cdms-verify-dev
+      app: cdms-verify-prod
     includeSelectors: false
 
 resources:
@@ -14,4 +14,4 @@ resources:
   - pvc.yaml
 
 patches:
-  - path: cdms-verify-dev.yaml
+  - path: cdms-verify-prod.yaml

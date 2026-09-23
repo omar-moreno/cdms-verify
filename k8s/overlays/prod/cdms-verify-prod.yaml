@@ -10,17 +10,16 @@ spec:
           containers:
             - name: cdms-verify
               image: omarmoreno/cdms-verify:0.1.0
-              imagePullPolicy: Always
+              imagePullPolicy: IfNotPresent
               args:
                 - "--local-dir"
                 - "/sdf/data/supercdms/data/CDMS/SNOLAB/R7"
                 - "--db-path"
                 - "/opt/db/verification.db"
-                - "--verbose"
               volumeMounts:
                 - name: db-path
                   mountPath: /opt/db
-                  subPath: workarea/software/cdms-verify-db/dev
+                  subPath: workarea/software/cdms-verify-db/db
                 - name: sdf-data
                   mountPath: /sdf/data/supercdms/data
                   subPath: data

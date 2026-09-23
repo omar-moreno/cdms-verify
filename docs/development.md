@@ -26,12 +26,16 @@ cdms_verify/
 ├── catalog.py     # catalog query wrapper
 ├── database.py    # single-table SQLite persistence
 ├── schema.sql     # database schema
-└── cli.py         # Click entry point (scan + skip + persist)
+├── cli.py         # Click entry point (scan + re-check + upsert)
+├── cleanup.py     # cleanup decision logic
+└── cleanup_cli.py # cleanup entry point
 tests/
 ├── test_paths.py
 ├── test_scanning.py
 ├── test_database.py
 └── test_cli.py
+├── test_cleanup.py
+└── ...
 ```
 
 ## Conventions
@@ -39,7 +43,24 @@ tests/
 - **Docstrings:** NumPy style, rendered via `mkdocstrings`.
 - **Type hints:** required on all public functions.
 - **Error handling:** pure helpers avoid `sys.exit`; only `cli.py` exits.
-- **Persistence:** each result is committed per file for crash durability.
+- **Persistence:** the single write API is
+  [`upsert_result`](api/database.md#cdms_verify.database.upsert_result),
+  committed per file. Re-checks update rows in place.
+- **Test setup:** seed data with the shared `seed` fixture (direct SQL), not
+  production write functions — this keeps tests decoupled from the write path.
+
+## Detecting dead code
+
+We use [Vulture](https://github.com/jendrikseipp/vulture) to catch unused
+functions and imports:
+
+```bash
+vulture cdms_verify/ .vulture_whitelist.py
+```
+
+The whitelist file lists CLI entry points (`verify_catalog_registration`,
+`cleanup`) that have no in-code callers but are invoked via
+`pyproject.toml` `[project.scripts]`.
 
 ## Testing notes
 

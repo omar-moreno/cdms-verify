@@ -115,8 +115,8 @@ def _invoke(cli, runner, scan_dir, db_path, extra=None):
 # --------------------------------------------------------------------------- #
 
 
-def test_all_unregistered_exits_1(cli, tmp_path):
-    """With no registered paths, all files are UNREGISTERED -> exit 1."""
+def test_all_unregistered_exits_0(cli, tmp_path):
+    """Unregistered files are recorded but do NOT fail the run."""
     scan_dir = _make_tree(tmp_path)
     db = tmp_path / "verification.db"
 
@@ -125,7 +125,7 @@ def test_all_unregistered_exits_1(cli, tmp_path):
     runner = CliRunner()
     result = _invoke(cli, runner, scan_dir, db)
 
-    assert result.exit_code == 1
+    assert result.exit_code == 0
     summary = get_summary(db)
     assert summary["total"] == 2
     assert summary["unregistered"] == 2
@@ -151,7 +151,8 @@ def test_all_verified_exits_0(cli, tmp_path):
     assert summary["unregistered"] == 0
 
 
-def test_partial_registration_exits_1(cli, tmp_path):
+def test_partial_registration_exits_0(cli, tmp_path):
+    """A mix of verified and unregistered still exits 0."""
     scan_dir = _make_tree(tmp_path)
     db = tmp_path / "verification.db"
 
@@ -160,7 +161,7 @@ def test_partial_registration_exits_1(cli, tmp_path):
     runner = CliRunner()
     result = _invoke(cli, runner, scan_dir, db)
 
-    assert result.exit_code == 1
+    assert result.exit_code == 0
     summary = get_summary(db)
     assert summary["registered"] == 1
     assert summary["unregistered"] == 1
@@ -325,7 +326,7 @@ def test_unregistered_file_is_rechecked_and_can_become_verified(cli, tmp_path):
     # Run 1: nothing registered -> both files UNREGISTERED.
     _FakeClient.registered_paths = []
     result1 = _invoke(cli, runner, scan_dir, db)
-    assert result1.exit_code == 1
+    assert result1.exit_code == 0
     assert get_summary(db)["unregistered"] == 2
 
     # Run 2: files now registered in the catalog.
@@ -358,3 +359,21 @@ def test_verified_files_are_not_rechecked(cli, tmp_path):
     result = _invoke(cli, runner, scan_dir, db)  # run 2
     assert result.exit_code == 0
     assert get_summary(db)["registered"] == 2  # unchanged
+
+
+def test_checksum_error_exits_1(cli, tmp_path, monkeypatch):
+    """A checksum ERROR is a genuine failure and exits 1."""
+    scan_dir = _make_tree(tmp_path)
+    db = tmp_path / "verification.db"
+    _FakeClient.registered_paths = []
+
+    # Force calculate_sha256 to report an error for every file.
+    import cdms_verify.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "calculate_sha256", lambda _p: cli_mod.CHECKSUM_ERROR)
+
+    runner = CliRunner()
+    result = _invoke(cli, runner, scan_dir, db)
+
+    assert result.exit_code == 1
+    assert get_summary(db)["errors"] == 2
