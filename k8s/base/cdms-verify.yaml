@@ -1,17 +1,26 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: CronJob
 metadata:
   name: cdms-verify
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: cdms-verify
-  template:
-    metadata:
-      labels:
-        app: cdms-verify
+  # Placeholder schedule; overlays can override. Daily at 08:00 UTC.
+  schedule: "0 8 * * *"
+  timeZone: "Etc/UTC"
+  # Never run two verifications at once — SQLite serializes writers.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
     spec:
-      containers:
-      - name: cdms-verify
-        image: omarmoreno/cdms-verify:latest
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: cdms-verify
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: cdms-verify
+              image: omarmoreno/cdms-verify:latest
